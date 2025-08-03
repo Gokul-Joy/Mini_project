@@ -529,79 +529,8 @@ legend("bottomright", legend = c("1-year", "3-year", "5-year"),
 
 #===============================================================================
 
-cat("Common Genes:\n")
-print(common_genes)
-length(common_genes)
 
-print(dim(expr_risk))         # should match n_samples × 49
-print(colnames(expr_matrix)[1:10])
-print(rownames(expr_matrix)[1:5])
-
-dim(expr_common)
-colnames(expr_common)[1:5]
-rownames(expr_common)[1:5]
-
-
-
-
-
-
-
-# -------------------------------
-# ✅ 1. Clean Sample IDs
-# -------------------------------
-sample_ids_clean <- gsub("\\.", "", substr(colnames(expr_common), 1, 12))
-
-# -------------------------------
-# ✅ 2. Match Clinical Data
-# -------------------------------
-clin_matched <- clin_df[match(sample_ids_clean, clin_df$SampleID), ]
-
-# -------------------------------
-# ✅ 3. Extract Survival Info
-# -------------------------------
-surv_time <- ifelse(is.na(as.numeric(clin_matched$days_to_death)),
-                    as.numeric(clin_matched$days_to_last_followup),
-                    as.numeric(clin_matched$days_to_death))
-surv_status <- as.numeric(clin_matched$vital_status)
-
-cat("✅ Survival Time Summary:\n")
-print(summary(surv_time))
-cat("✅ Survival Status Table:\n")
-print(table(surv_status))
-
-# -------------------------------
-# ✅ 4. Prepare Expression & Filter Valid Samples
-# -------------------------------
-x <- as.matrix(t(expr_common))  # Samples × Genes
-valid_samples <- which(surv_time > 0 & !is.na(surv_time))
-
-cat("✅ Valid Samples:", length(valid_samples), "\n")
-
-x_valid <- x[valid_samples, ]
-y_valid <- Surv(time = surv_time[valid_samples], event = surv_status[valid_samples])
-
-# -------------------------------
-# ✅ 5. Run LASSO Cox
-# -------------------------------
-library(glmnet)
-library(survival)
-
-set.seed(123)
-cvfit <- cv.glmnet(x_valid, y_valid, family = "cox", alpha = 1, nfolds = 10)
-
-# -------------------------------
-# ✅ 6. Extract Selected Genes
-# -------------------------------
-coef_vector <- coef(cvfit, s = "lambda.min")
-selected_genes <- rownames(coef_vector)[coef_vector[, 1] != 0]
-selected_genes <- selected_genes[selected_genes != "(Intercept)"]
-
-cat("✅ Selected Biomarker Genes:\n")
-print(selected_genes)
-cat("Total selected:", length(selected_genes), "\n")
-
-
+#===============================================================================
 
 gene_pvals <- apply(x_valid, 2, function(g) {
   summary(coxph(Surv(surv_time[valid_samples], surv_status[valid_samples]) ~ g))$coefficients[,"Pr(>|z|)"]
@@ -612,4 +541,3 @@ sort(gene_pvals)[1:10]
 
 
 
-a<- 55
