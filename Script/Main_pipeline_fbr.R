@@ -608,3 +608,8 @@ gene_pvals <- apply(x_valid, 2, function(g) {
 })
 sort(gene_pvals)[1:10]
 
+
+
+
+
+a<- 55
