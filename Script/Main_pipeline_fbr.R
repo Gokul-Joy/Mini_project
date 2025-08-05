@@ -126,7 +126,7 @@ deg_tcga_sig_0.05_pval_0.1 <- subset(deg_tcga, adj.P.Val < 0.1 & abs(logFC) > 0.
 cat("Total DEGs for 1.5:", nrow(deg_tcga_sig_1.5), "\n")                                       #|
 cat("Total DEGs for 1:", nrow(deg_tcga_sig_1), "\n")                                           #|
 cat("Total DEGs for 0.5:", nrow(deg_tcga_sig_0.5), "\n")                                       #|
-cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.5), "\n")                                #|
+cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.05), "\n")                                #|
 cat("Total DEGs for logFC > 0.05 and adj.P.Val < 0.1:", nrow(deg_tcga_sig_0.05_pval_0.1), "\n")#|
 #==============================================================================================#|
 
@@ -148,9 +148,11 @@ symbols_0.05 <- mapIds(org.Hs.eg.db,
                       keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
                       multiVals = "first")
 
+
 # 6. Clean and save mapped symbols
 symbols_1.5 <- na.omit(symbols_1.5)
 symbols_0.05 <- na.omit(symbols_0.05)
+length(symbols_0.05)
 genes_tcga_1.5 <- unname(symbols_1.5)
 genes_tcga_0.05<- unname(symbols_0.05)
 #===============================================================================
@@ -211,7 +213,8 @@ design_geo <- model.matrix(~group_geo)
 fit_geo <- lmFit(expr_geo, design_geo)
 fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
-
+dim(deg_geo)
+dim(deg_tcga)
 #===================================================================================|
 deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1.5, ]  #|
 deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]  #|
@@ -307,7 +310,8 @@ gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
 
 #======================Block of common genes and GO nd KEGG=====================
 common_genes_1.5 <- intersect(gene_geo_1.5, genes_tcga_1.5)
-common_genes_1.5 <- intersect(gene_geo_0.05, genes_tcga_0.05)
+length(gene_geo_1.5);length(genes_tcga_1.5);
+common_genes_0.05 <- intersect(gene_geo_0.05, genes_tcga_0.05)
 length(common_genes_1.5)
 length(common_genes_0.05)
 #|
