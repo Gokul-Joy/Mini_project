@@ -27,7 +27,7 @@ expr_matrix <- as.data.frame(lapply(expr_data, as.numeric))
 expr_matrix <- as.matrix(expr_matrix)
 rownames(expr_matrix) <- rownames(expr_data)
 
-
+dim(expr_matrix)
 
 
 sample_ids <- colnames(expr_matrix)  # Save column names first
@@ -396,7 +396,7 @@ dim(expr_common)
 
 # Create survival object
 library(survival)
-
+library(glmnet)
 
 #=============
 #quick fix for surv time less than zero
@@ -532,7 +532,7 @@ legend("bottomright", legend = c("1-year", "3-year", "5-year"),
 
 #===============================================================================
 
-gene_pvals <- apply(x_valid, 2, function(g) {
+gene_pvals <- apply(x, 2, function(g) {
   summary(coxph(Surv(surv_time[valid_samples], surv_status[valid_samples]) ~ g))$coefficients[,"Pr(>|z|)"]
 })
 sort(gene_pvals)[1:10]
