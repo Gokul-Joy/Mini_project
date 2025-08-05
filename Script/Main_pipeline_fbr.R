@@ -64,9 +64,10 @@ library(limma)
 group <- factor(labels, levels = c(0, 1))  # 0 = normal, 1 = tumor
 design <- model.matrix(~ group)
 
-#log transform==================================================================
-expr_matrix <- log2(expr_matrix + 1)
 
+#log transform================================================================#|
+expr_matrix <- log2(expr_matrix + 1)                                          #|
+#=============================================================================#|
 
 
 # Apply limma
