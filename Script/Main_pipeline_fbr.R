@@ -335,8 +335,8 @@ ekegg_0.05 <- enrichKEGG(gene = entrez_ids_0.05$ENTREZID, organism = 'hsa', pval
 #|
 #|
 # Plots----------
-barplot(ego_1.5, showCategory = 15, title = "GO Enrichment")
-dotplot(ekegg_1.5, showCategory = 15, title = "KEGG Pathway Enrichment")
+#barplot(ego_1.5, showCategory = 15, title = "GO Enrichment")!!!!!!!!
+#dotplot(ekegg_1.5, showCategory = 15, title = "KEGG Pathway Enrichment")!!!!!!!
 
 barplot(ego_0.05, showCategory = 15, title = "GO Enrichment")
 dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
@@ -350,14 +350,12 @@ dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
 
 
 
-#------------------------[ 5. Optional GSEA (TCGA only) ]------------------------
-gene_stats_1.5<- deg_tcga_1.5$logFC
-names(gene_stats_1.5) <- rownames(deg_tcga_1.5)
+#------------------------[ Optional GSEA (TCGA only) ]------------------------
+gene_stats_1.5<- deg_tcga$logFC
+names(gene_stats_1.5) <- rownames(deg_tcga)
 #|
-gene_stats_0.05<- deg_tcga_0.05$logFC
-names(gene_stats_0.05) <- rownames(deg_tcga_0.05)
 
-head(rownames(deg_tcga_1.5), 10)
+head(rownames(deg_tcga), 10)
 
 
 library(clusterProfiler)
@@ -366,12 +364,10 @@ gsea_kegg_1.5 <- gseKEGG(geneList = sort(gene_stats_1.5, decreasing = TRUE),
                      organism = "hsa",
                      pvalueCutoff = 0.2)
 
-gsea_kegg_0.05 <- gseKEGG(geneList = sort(gene_stats_0.05, decreasing = TRUE),
-                     organism = "hsa",
-                     pvalueCutoff = 0.2)
+
 
 dotplot(gsea_kegg_1.5, showCategory = 15, title = "KEGG GSEA logfc1.5 (TCGA-PAAD)")
-dotplot(gsea_kegg_0.05, showCategory = 15, title = "KEGG GSEA logfc 0.05 (TCGA-PAAD)")
+
 
 #===============================================================================
 
@@ -529,28 +525,28 @@ y <- Surv(time = surv_time, event = surv_status)
 
 # Check dimensions again
 cat("Final dimensions:\n")
-print(dim(x))
+print(dim(x_0.05))
 
 #==============
-fit_1.5 <- cv.glmnet(x_1.5, y, family = "cox", alpha = 1, nfolds = 10)
+#fit_1.5 <- cv.glmnet(x_1.5, y, family = "cox", alpha = 1, nfolds = 10)!!!!!!!!!
 fit_0.05 <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
 #==============
 #|
 #==============
-plot(fit_1.5)
+#plot(fit_1.5)!!!!!!
 plot(fit_0.05)
 #==============
 # Extract non-zero genes==================================
-lasso_coef_1.5 <- coef(fit_1.5, s = fit_1.5$lambda.min)
+#lasso_coef_1.5 <- coef(fit_1.5, s = fit_1.5$lambda.min)!!!!!!!!
 lasso_coef_0.05 <- coef(fit_0.05, s = fit_0.05$lambda.min)
 #|
-lasso_genes_1.5 <- rownames(lasso_coef_1.5)[lasso_coef_1.5[, 1] != 0]
+#lasso_genes_1.5 <- rownames(lasso_coef_1.5)[lasso_coef_1.5[, 1] != 0]!!!!!!!!!!
 lasso_genes_0.05 <- rownames(lasso_coef_0.05)[lasso_coef_0.05[, 1] != 0]
 #|
 #|
 cat("✅ Selected   biomarker  for logfc 1.5 and 0.05:\n")
-print(lasso_genes_1.5)
-length(lasso_genes_1.5)
+#print(lasso_genes_1.5)!!!
+#length(lasso_genes_1.5)!!!
 print(lasso_genes_0.05)
 length(lasso_genes_0.05)
 #=======================
@@ -562,20 +558,20 @@ dim(x_0.05)
 #|
 #|
 # Genes from lambda.min=========================================================
-genes_min_1.5 <- rownames(coef(fit_1.5, s = "lambda.min"))[coef(fit_1.5, s = "lambda.min")[,1] != 0]
+#genes_min_1.5 <- rownames(coef(fit_1.5, s = "lambda.min"))[coef(fit_1.5, s = "lambda.min")[,1] != 0]
 genes_min_0.05 <- rownames(coef(fit_0.05, s = "lambda.min"))[coef(fit_0.05, s = "lambda.min")[,1] != 0]
 #|
 #|
 # Genes from lambda.1se
-genes_1se_1.5 <- rownames(coef(fit_1.5, s = "lambda.1se"))[coef(fit_1.5, s = "lambda.1se")[,1] != 0]
+#genes_1se_1.5 <- rownames(coef(fit_1.5, s = "lambda.1se"))[coef(fit_1.5, s = "lambda.1se")[,1] != 0]
 genes_1se_0.05 <- rownames(coef(fit_0.05, s = "lambda.1se"))[coef(fit_0.05, s = "lambda.1se")[,1] != 0]
 #|
 #|
 # Print comparison
-cat("Genes (lambda.min) for logfc 1.5:", length(genes_min_1.5), "\n", genes_min_1.5, "\n\n")
+#cat("Genes (lambda.min) for logfc 1.5:", length(genes_min_1.5), "\n", genes_min_1.5, "\n\n")
 cat("Genes (lambda.min) for logfc 0.05:", length(genes_min_0.05), "\n", genes_min_0.05, "\n\n")
-cat("Genes (lambda.1se) for logcf 1.5:", length(genes_1se_1.5), "\n", genes_1se_1.5)
-cat("Genes (lambda.1se) for logcf 0.05:", length(genes_1se_1.5), "\n", genes_1se_1.5)
+#cat("Genes (lambda.1se) for logcf 1.5:", length(genes_1se_1.5), "\n", genes_1se_1.5)
+cat("Genes (lambda.1se) for logcf 0.05:", length(genes_1se_0.05), "\n", genes_1se_0.05)
 #===============================================================================
 
 
@@ -591,31 +587,31 @@ cat("Genes (lambda.1se) for logcf 0.05:", length(genes_1se_1.5), "\n", genes_1se
 #===============================================================================
 
 # Get coefficients (as named vector)
-coef_vector_1.5 <- as.vector(lasso_coef_1.5[lasso_coef_1.5[, 1] != 0])
+#coef_vector_1.5 <- as.vector(lasso_coef_1.5[lasso_coef_1.5[, 1] != 0])!!!!
 coef_vector_0.05 <- as.vector(lasso_coef_0.05[lasso_coef_0.05[, 1] != 0])
-names(coef_vector_1.5) <- lasso_genes_1.5
+#names(coef_vector_1.5) <- lasso_genes_1.5!!!!!!!
 names(coef_vector_0.05) <- lasso_genes_0.05
 #|
 # Subset only selected genes from x
-x_lasso_1.5 <- x_1.5[, lasso_genes_1.5]
+#x_lasso_1.5 <- x_1.5[, lasso_genes_1.5]!!
 x_lasso_0.05<- x_0.05[, lasso_genes_0.05]
 #|
 #|
 #|
 #|
 #Risk score per patient (sample)
-risk_score_1.5 <- as.numeric(x_lasso_1.5 %*% coef_vector_1.5)
+#risk_score_1.5 <- as.numeric(x_lasso_1.5 %*% coef_vector_1.5)!!!!
 risk_score_0.05<- as.numeric(x_lasso_0.05 %*% coef_vector_0.05)
 #|
 # Median split into high- and low-risk
-median_cutoff_1.5 <- median(risk_score_1.5)
+#median_cutoff_1.5 <- median(risk_score_1.5)!!!!!!!!!!!!
 median_cutoff_0.05 <- median(risk_score_0.05)
 #|
-risk_group_1.5 <- ifelse(risk_score_1.5 > median_cutoff_1.5, "High", "Low")
+#risk_group_1.5 <- ifelse(risk_score_1.5 > median_cutoff_1.5, "High", "Low")!!!!!!!!!!!!
 risk_group_0.05 <- ifelse(risk_score_0.05> median_cutoff_0.05, "High", "Low")
 #|
 # Convert to factor
-risk_group_1.5<- factor(risk_group_1.5, levels = c("Low", "High"))
+#risk_group_1.5<- factor(risk_group_1.5, levels = c("Low", "High"))!!!!
 risk_group_0.05 <- factor(risk_group_0.05, levels = c("Low", "High"))
 #===============================================================================
 
@@ -632,18 +628,18 @@ library(survminer)
 surv_obj <- Surv(surv_time, surv_status)
 
 # Fit KM
-fit_km_1.5 <- survfit(surv_obj ~ risk_group_1.5)
+#fit_km_1.5 <- survfit(surv_obj ~ risk_group_1.5)!!!!!!!
 fit_km_0.05 <- survfit(surv_obj ~ risk_group_0.05)
 #|
 #|
 # Plot
-ggsurvplot(fit_km_1.5,
-           data = data.frame(risk_group_1.5),
-           pval = TRUE,
-           risk.table = TRUE,
-           title = "Survival Curve: High vs Low Risk logfc 1.5",
-           palette = c("blue", "red"))
-
+#ggsurvplot(fit_km_1.5,
+ #          data = data.frame(risk_group_1.5),
+ #          pval = TRUE,
+  #         risk.table = TRUE,
+  #         title = "Survival Curve: High vs Low Risk logfc 1.5",
+   #        palette = c("blue", "red"))
+#
 #|
 #|
 #|
@@ -665,7 +661,7 @@ library(timeROC)
 
 roc_obj <- timeROC(T = surv_time,
                    delta = surv_status,
-                   marker = risk_score,
+                   marker = risk_score_0.05,
                    cause = 1,
                    times = c(365, 1095, 1825),
                    iid = TRUE)
@@ -700,6 +696,7 @@ gene_pvals_0.05 <- apply(x_0.05, 2, function(g) {
 
 sort(gene_pvals_1.5)[1:10]
 sort(gene_pvals_0.05)[1:10]
+length(gene_pvals_0.05)
 #===============================================================================
 
 
