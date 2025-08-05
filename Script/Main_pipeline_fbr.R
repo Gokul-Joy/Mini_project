@@ -104,9 +104,7 @@ abline(v = c(-1.5, -1, -0.5, 0.5, 1, 1.5), col = "red", lty = 2)
 
 summary(sig_degs$logFC)
 range(sig_degs$logFC, na.rm = TRUE)
-
 #===============================================================================
-
 
 
 
@@ -204,18 +202,27 @@ design_geo <- model.matrix(~group_geo)
 fit_geo <- lmFit(expr_geo, design_geo)
 fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
-deg_geo_sig <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]
+
+#===================================================================================|
+deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1.5, ]  #|
+deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]  #|
+deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]#|
+#==================================================================================#|
 
 
 
 
+#==============================================================================|
+cat("Number of significant DEGs 1.5:", nrow(deg_geo_sig_1.5), "\n")
+cat("Number of significant DEGs 0.5:", nrow(deg_geo_sig_0.5), "\n")
+cat("Number of significant DEGs 0.05:", nrow(deg_geo_sig_0.05), "\n")
 
-
-
-
-
+#==============================================================================|
+#|
+#|
+#|
 #==================Extra views ahn==============================================
-cat("Number of significant DEGs:", nrow(deg_geo_sig), "\n")
+
 # Direction: Up and Down
 table(sign(deg_geo_sig$logFC))  # -1 = down, +1 = up
 summary(deg_geo_sig)
