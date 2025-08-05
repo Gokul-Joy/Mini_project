@@ -305,23 +305,38 @@ gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
 
 
 
-
-common_genes <- intersect(gene_geo, genes_tcga)
-length(common_genes)
-
-entrez_ids <- bitr(common_genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
-
+#----------------------Block of common genes and GO nd KEGG---------------------
+common_genes_1.5 <- intersect(gene_geo_1.5, genes_tcga_1.5)
+common_genes_1.5 <- intersect(gene_geo_0.05, genes_tcga_0.05)
+length(common_genes_1.5)
+length(common_genes_0.05)
+#|
+#|
+#|
+entrez_ids_1.5 <- bitr(common_genes_1.5, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+entrez_ids_0.05 <- bitr(common_genes_0.05, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+#|
+#|
 # GO
-ego <- enrichGO(gene = entrez_ids$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
+ego_1.5 <- enrichGO(gene = entrez_ids_1.5$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
                 ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE)
-
+ego_0.05 <- enrichGO(gene = entrez_ids_0.05$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
+                    ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE)
+#|
+#|
+#|
 # KEGG
-ekegg <- enrichKEGG(gene = entrez_ids$ENTREZID, organism = 'hsa', pvalueCutoff = 0.05)
+ekegg_1.5 <- enrichKEGG(gene = entrez_ids_1.5$ENTREZID, organism = 'hsa', pvalueCutoff = 0.05)
+ekegg_0.05 <- enrichKEGG(gene = entrez_ids_0.05$ENTREZID, organism = 'hsa', pvalueCutoff = 0.05)
+#|
+#|
+# Plots----------
+barplot(ego_1.5, showCategory = 15, title = "GO Enrichment")
+dotplot(ekegg_1.5, showCategory = 15, title = "KEGG Pathway Enrichment")
 
-# Plots
-barplot(ego, showCategory = 15, title = "GO Enrichment")
-dotplot(ekegg, showCategory = 15, title = "KEGG Pathway Enrichment")
-
+barplot(ego_0.05, showCategory = 15, title = "GO Enrichment")
+dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
+#-------------------------------------------------------------------------------
 
 
 
