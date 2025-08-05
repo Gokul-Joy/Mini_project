@@ -64,6 +64,11 @@ library(limma)
 group <- factor(labels, levels = c(0, 1))  # 0 = normal, 1 = tumor
 design <- model.matrix(~ group)
 
+#log transform==================================================================
+expr_matrix <- log2(expr_matrix + 1)
+
+
+
 # Apply limma
 fit <- lmFit(expr_matrix, design)
 fit <- eBayes(fit)
@@ -71,12 +76,60 @@ fit <- eBayes(fit)
 # Extract DEGs
 deg_tcga <- topTable(fit, coef = 2, number = Inf, adjust = "fdr")
 
-# Filter significant DEGs
-deg_tcga_sig <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 1)
 
-# Summary
-cat("Total DEGs:", nrow(deg_tcga_sig), "\n")
-head(deg_tcga_sig)
+
+
+
+#===============================================================================
+#To see the histogram of pval desgs
+
+# Filter significant DEGs
+sig_degs <- deg_tcga[deg_tcga$adj.P.Val < 0.05, ]
+
+
+# Plot histogram of logFC values
+hist(
+  sig_degs$logFC,
+  breaks = 50,                    # Number of bins
+  col = "skyblue",                # Color of bars
+  border = "white",               # No border color
+  main = "Distribution of log2 Fold Change (Significant DEGs)",
+  xlab = "log2 Fold Change (logFC)",
+  ylab = "Number of Genes"
+)
+
+# Add vertical lines for thresholds (optional)
+abline(v = c(-1.5, -1, -0.5, 0.5, 1, 1.5), col = "red", lty = 2)
+
+summary(sig_degs$logFC)
+range(sig_degs$logFC, na.rm = TRUE)
+
+#===============================================================================
+
+
+
+
+
+
+
+
+# Filter significant DEGs===========================================================|
+deg_tcga_sig_1.5 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 1.5)          #|
+deg_tcga_sig_1 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 1)              #|
+deg_tcga_sig_0.5 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 0.5)          #|
+deg_tcga_sig_0.05 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 0.05)        #|   
+deg_tcga_sig_0.05_pval_0.1 <- subset(deg_tcga, adj.P.Val < 0.1 & abs(logFC) > 0.05)#|
+#===================================================================================|
+
+
+
+# Summary=======================================================================================|
+cat("Total DEGs for 1.5:", nrow(deg_tcga_sig_1.5), "\n")                                       #|
+cat("Total DEGs for 1:", nrow(deg_tcga_sig_1), "\n")                                           #|
+cat("Total DEGs for 0.5:", nrow(deg_tcga_sig_0.5), "\n")                                       #|
+cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.5), "\n")                                #|
+cat("Total DEGs for logFC > 0.05 and adj.P.Val < 0.1:", nrow(deg_tcga_sig_0.05_pval_0.1), "\n")#|
+#==============================================================================================#|
 
 
 
