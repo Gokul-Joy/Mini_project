@@ -130,22 +130,31 @@ cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.5), "\n")                 
 cat("Total DEGs for logFC > 0.05 and adj.P.Val < 0.1:", nrow(deg_tcga_sig_0.05_pval_0.1), "\n")#|
 #==============================================================================================#|
 
-
+View(deg_tcga_sig)
+View(deg_tcga_sig_1.5)
 
 
 library(org.Hs.eg.db)
-symbols <- mapIds(org.Hs.eg.db,
-                  keys = rownames(deg_tcga_sig),
+symbols_1.5 <- mapIds(org.Hs.eg.db,
+                  keys = rownames(deg_tcga_sig_1.5),
                   column = "SYMBOL",
                   keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
                   multiVals = "first")
 
-# 6. Clean and save mapped symbols
-symbols <- na.omit(symbols)
-genes_tcga <- unname(symbols)
-#===============================================================================
-#===============================================================================
 
+symbols_0.05 <- mapIds(org.Hs.eg.db,
+                      keys = rownames(deg_tcga_sig_0.05),
+                      column = "SYMBOL",
+                      keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
+                      multiVals = "first")
+
+# 6. Clean and save mapped symbols
+symbols_1.5 <- na.omit(symbols_1.5)
+symbols_0.05 <- na.omit(symbols_0.05)
+genes_tcga_1.5 <- unname(symbols_1.5)
+genes_tcga_0.05<- unname(symbols_0.05)
+#===============================================================================
+#===============================================================================
 
 
 
@@ -224,16 +233,13 @@ cat("Number of significant DEGs 0.05:", nrow(deg_geo_sig_0.05), "\n")
 #==================Extra views ahn==============================================
 
 # Direction: Up and Down
-table(sign(deg_geo_sig$logFC))  # -1 = down, +1 = up
-summary(deg_geo_sig)
-sum(is.na(deg_geo_sig$logFC))
-sum(is.na(deg_geo_sig$adj.P.Val))
-
+table(sign(deg_geo_sig_0.05$logFC))  # -1 = down, +1 = up
+summary(deg_geo_sig_0.05)
 
 
 library(ggplot2)# express change kanan vendi ahn this volvcano plot
 
-deg_geo$threshold <- as.factor(deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5)
+deg_geo$threshold <- as.factor(deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05)
 
 ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
   geom_point(alpha = 0.6) +
@@ -248,7 +254,7 @@ ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
 library(pheatmap)
 
 #Top 50
-top_genes <- rownames(deg_geo_sig)[1:min(50, nrow(deg_geo_sig))]
+top_genes <- rownames(deg_geo_sig_0.05)[1:min(50, nrow(deg_geo_sig_0.05))]
 heat_data <- expr_geo[top_genes, ]
 
 #z-score norm
@@ -268,7 +274,6 @@ pheatmap(heat_data_scaled,
 
 
 
-
 # Probe -> Gene symbol (GPL6244)
 gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
 gpl_table <- Table(gpl)
@@ -276,10 +281,19 @@ probe2gene <- gpl_table[, c("ID", "Gene symbol")]
 colnames(probe2gene) <- c("PROBEID", "SYMBOL")
 probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
 probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
-deg_geo_sig$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig), probe2gene$PROBEID)]
-deg_geo_sig <- deg_geo_sig[!is.na(deg_geo_sig$SYMBOL), ]
-gene_geo <- deg_geo_sig$SYMBOL
-
+#|
+#|
+#|
+#|
+#Trying two set of LOGFC
+#--------------------
+deg_geo_sig_1.5$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_1.5), probe2gene$PROBEID)]
+deg_geo_sig_1.5 <- deg_geo_sig_1.5[!is.na(deg_geo_sig_1.5$SYMBOL), ]
+gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
+#-------------------
+deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
+deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
+gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
 
 #===============================================================================
 #==================================GEO ending===================================
