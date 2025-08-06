@@ -54,9 +54,6 @@ sample_ids <- colnames(expr_matrix)
 
 
 
-
-
-
 # Load limma package
 library(limma)
 
@@ -66,13 +63,18 @@ design <- model.matrix(~ group)
 
 
 #log transform================================================================#|
-expr_matrix <- log2(expr_matrix + 1)                                          #|
+log_mat <- log2(expr_matrix + 1)                                              #|
 #=============================================================================#|
 
 
-# Apply limma
-fit <- lmFit(expr_matrix, design)
-fit <- eBayes(fit)
+
+
+# Apply limma=================
+fit <- lmFit(log_mat, design)
+fit <- eBayes(fit,trend = TRUE)
+#=============================
+
+plotSA(fit, main="Mean-variance with log transform")
 
 # Extract DEGs
 deg_tcga <- topTable(fit, coef = 2, number = Inf, adjust = "fdr")
