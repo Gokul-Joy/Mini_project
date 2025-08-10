@@ -704,3 +704,101 @@ length(gene_pvals_0.05)
 
 
 
+
+
+
+
+
+
+
+
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#Extract genes & check stability across runs====================================
+library(glmnet)
+
+# Fit your model
+fit <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
+
+# Extract coefficients at optimal lambda
+coef_opt <- coef(fit, s = "lambda.min")   # s = "lambda.1se" is more conservative
+selected_genes <- rownames(coef_opt)[which(coef_opt != 0)]
+
+selected_genes
+
+
+
+n_runs <- 50
+gene_list <- list()
+
+for (i in 1:n_runs) {
+  fit_tmp <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
+  coef_tmp <- coef(fit_tmp, s = "lambda.min")
+  genes_tmp <- rownames(coef_tmp)[which(coef_tmp != 0)]
+  gene_list[[i]] <- genes_tmp
+}
+
+# Frequency table: how many times each gene was selected
+gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
+
+gene_freq
+
+
+
+
+
+
+#=======================================
+library(glmnet)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+
+# Parameters
+n_runs <- 100     # Number of repeated LASSO CV runs
+alpha_val <- 1    # LASSO penalty
+nfolds_val <- 10  # CV folds
+seed_base <- 123  # Base seed for reproducibility
+
+gene_list <- list()
+
+for (i in 1:n_runs) {
+  set.seed(seed_base + i)  # Different seed each run for fold variability
+  
+  fit <- cv.glmnet(
+    x_0.05, y,
+    family = "cox",
+    alpha = alpha_val,
+    nfolds = nfolds_val
+  )
+  
+  coef_opt <- coef(fit, s = "lambda.min")
+  selected_genes <- rownames(coef_opt)[which(coef_opt != 0)]
+  selected_genes <- selected_genes[selected_genes != "(Intercept)"]  # Remove intercept
+  
+  gene_list[[i]] <- selected_genes
+}
+
+# Frequency table
+gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
+gene_stability <- gene_freq / n_runs  # proportion
+
+# View stable genes (≥ 70% of runs)
+stable_genes <- gene_stability[gene_stability >= 0.7]
+print(stable_genes)
+
+# Plot stability
+gene_df <- as.data.frame(gene_stability) %>%
+  rownames_to_column("Gene") %>%
+  rename(Stability = gene_stability)
+
+ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = paste("Gene Stability over", n_runs, "LASSO CV runs"),
+    x = "Gene",
+    y = "Stability (Proportion of Runs)"
+  ) +
+  theme_minimal()
+
