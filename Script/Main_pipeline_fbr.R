@@ -666,13 +666,17 @@ roc_obj <- timeROC(T = surv_time,
                    times = c(365, 1095, 1825),
                    iid = TRUE)
 
+auc_values <- roc_obj$AUC
+names(auc_values) <- c("1yr", "3yr", "5yr")
+# Plot with AUC in legend
 plot(roc_obj, time = 365, col = "blue", title = TRUE)
 plot(roc_obj, time = 1095, add = TRUE, col = "green")
 plot(roc_obj, time = 1825, add = TRUE, col = "red")
-legend("bottomright", legend = c("1-year", "3-year", "5-year"),
-       col = c("blue", "green", "red"), lwd = 2)
 
-
+legend("bottomright",
+       legend = paste(names(auc_values), "AUC=", round(auc_values, 2)),
+       col = c("blue", "green", "red"),
+       lwd = 2)
 
 #===============================================================================
 #|                                                                            #|
@@ -682,28 +686,6 @@ legend("bottomright", legend = c("1-year", "3-year", "5-year"),
 #|                                                                            #|
 #|                                                                            #|
 #|                                                                            #|
-#|                                                                            #|
-#=================================Change of regression==========================
-
-gene_pvals_1.5 <- apply(x_1.5, 2, function(g) {
-  summary(coxph(Surv(surv_time[valid_samples], surv_status[valid_samples]) ~ g))$coefficients[,"Pr(>|z|)"]
-})
-gene_pvals_0.05 <- apply(x_0.05, 2, function(g) {
-  summary(coxph(Surv(surv_time[valid_samples], surv_status[valid_samples]) ~ g))$coefficients[,"Pr(>|z|)"]
-})
-
-
-
-sort(gene_pvals_1.5)[1:10]
-sort(gene_pvals_0.05)[1:10]
-length(gene_pvals_0.05)
-#===============================================================================
-
-
-
-
-
-
 
 
 
@@ -712,40 +694,7 @@ length(gene_pvals_0.05)
 
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#Extract genes & check stability across runs====================================
-library(glmnet)
-
-# Fit your model
-fit <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
-
-# Extract coefficients at optimal lambda
-coef_opt <- coef(fit, s = "lambda.min")   # s = "lambda.1se" is more conservative
-selected_genes <- rownames(coef_opt)[which(coef_opt != 0)]
-
-selected_genes
-
-
-
-n_runs <- 50
-gene_list <- list()
-
-for (i in 1:n_runs) {
-  fit_tmp <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
-  coef_tmp <- coef(fit_tmp, s = "lambda.min")
-  genes_tmp <- rownames(coef_tmp)[which(coef_tmp != 0)]
-  gene_list[[i]] <- genes_tmp
-}
-
-# Frequency table: how many times each gene was selected
-gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
-
-gene_freq
-
-
-
-
-
-
+#Extract genes & check stability across runs
 #===============================================================================
 library(glmnet)
 library(tibble)
@@ -781,11 +730,16 @@ for (i in 1:n_runs) {
 
 # Frequency table
 gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
-gene_stability <- gene_freq / n_runs  # proportion
+
+
+gene_stability <- as.numeric(gene_freq) / n_runs
+names(gene_stability) <- names(gene_freq)
 
 # View stable genes (≥ 70% of runs)
 stable_genes <- gene_stability[gene_stability >= 0.7]
 print(stable_genes)
+
+
 
 # Plot stability
 gene_df <- as.data.frame(gene_stability) %>%
