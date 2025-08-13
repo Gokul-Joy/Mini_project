@@ -178,12 +178,10 @@ library(enrichplot); library(DOSE)
 
 
 #------------------------[ 2. GEO]------------------------
-gse <- getGEO("GSE62452", GSEMatrix = TRUE)[[1]]
 
-
-#====================================================================================#|#
-gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz') #|#
-#====================================================================================#|#
+#====================================================================================#|
+gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz') #|
+#====================================================================================#|
 
 expr_geo <- exprs(gse)
 pheno <- pData(gse)
@@ -748,7 +746,7 @@ gene_freq
 
 
 
-#=======================================
+#===============================================================================
 library(glmnet)
 library(tibble)
 library(dplyr)
@@ -778,6 +776,8 @@ for (i in 1:n_runs) {
   
   gene_list[[i]] <- selected_genes
 }
+
+
 
 # Frequency table
 gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
