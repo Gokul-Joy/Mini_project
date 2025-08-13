@@ -377,6 +377,7 @@ dotplot(gsea_kegg_1.5, showCategory = 15, title = "KEGG GSEA logfc1.5 (TCGA-PAAD
 
 
 
+
 #  column names
 cat("Expression matrix sample IDs:\n")
 print(head(colnames(expr_matrix)))
@@ -420,6 +421,7 @@ expr_matrix <- expr_matrix[, expr_ids %in% matched_ids]
 clin_df <- clin_df[clin_df$SampleID %in% matched_ids, ]
 clin_df <- clin_df[match(gsub("\\.", "", substr(colnames(expr_matrix), 1, 12)), clin_df$SampleID), ]
 
+
 # =============================
 # 4. Coerce and create survival objects
 # =============================
@@ -442,7 +444,7 @@ dim(expr_matrix)
 
 
 #===============================================================================
-#LASSO + Cox Regression Modeling (on TCGA expression)
+#LASSO + Cox Regression Modeling 
 #===============================================================================
 
 length(common_genes_1.5)
@@ -484,6 +486,7 @@ expr_matrix <- expr_matrix[!duplicated(rownames(expr_matrix)), ]
 cat("New expression matrix rownames (symbols):\n")
 print(head(rownames(expr_matrix)))
 
+#///////////////////////////////////////////////////////////////////////////////
 # Filter expression matrix to common genes======================================
 expr_common_1.5 <- expr_matrix[rownames(expr_matrix) %in% common_genes_1.5, ]
 expr_common_0.05 <- expr_matrix[rownames(expr_matrix) %in% common_genes_0.05, ]
@@ -526,191 +529,20 @@ y <- Surv(time = surv_time, event = surv_status)
 # Check dimensions again
 cat("Final dimensions:\n")
 print(dim(x_0.05))
-
-#==============
-#fit_1.5 <- cv.glmnet(x_1.5, y, family = "cox", alpha = 1, nfolds = 10)!!!!!!!!!
-fit_0.05 <- cv.glmnet(x_0.05, y, family = "cox", alpha = 1, nfolds = 10)
-#==============
-#|
-#==============
-#plot(fit_1.5)!!!!!!
-plot(fit_0.05)
-#==============
-# Extract non-zero genes==================================
-#lasso_coef_1.5 <- coef(fit_1.5, s = fit_1.5$lambda.min)!!!!!!!!
-lasso_coef_0.05 <- coef(fit_0.05, s = fit_0.05$lambda.min)
-#|
-#lasso_genes_1.5 <- rownames(lasso_coef_1.5)[lasso_coef_1.5[, 1] != 0]!!!!!!!!!!
-lasso_genes_0.05 <- rownames(lasso_coef_0.05)[lasso_coef_0.05[, 1] != 0]
-#|
-#|
-cat("✅ Selected   biomarker  for logfc 1.5 and 0.05:\n")
-#print(lasso_genes_1.5)!!!
-#length(lasso_genes_1.5)!!!
-print(lasso_genes_0.05)
-length(lasso_genes_0.05)
-#=======================
-
-dim(x_1.5)
-dim(x_0.05)
-#==========
-#|
-#|
-#|
-# Genes from lambda.min=========================================================
-#genes_min_1.5 <- rownames(coef(fit_1.5, s = "lambda.min"))[coef(fit_1.5, s = "lambda.min")[,1] != 0]
-genes_min_0.05 <- rownames(coef(fit_0.05, s = "lambda.min"))[coef(fit_0.05, s = "lambda.min")[,1] != 0]
-#|
-#|
-# Genes from lambda.1se
-#genes_1se_1.5 <- rownames(coef(fit_1.5, s = "lambda.1se"))[coef(fit_1.5, s = "lambda.1se")[,1] != 0]
-genes_1se_0.05 <- rownames(coef(fit_0.05, s = "lambda.1se"))[coef(fit_0.05, s = "lambda.1se")[,1] != 0]
-#|
-#|
-# Print comparison
-#cat("Genes (lambda.min) for logfc 1.5:", length(genes_min_1.5), "\n", genes_min_1.5, "\n\n")
-cat("Genes (lambda.min) for logfc 0.05:", length(genes_min_0.05), "\n", genes_min_0.05, "\n\n")
-#cat("Genes (lambda.1se) for logcf 1.5:", length(genes_1se_1.5), "\n", genes_1se_1.5)
-cat("Genes (lambda.1se) for logcf 0.05:", length(genes_1se_0.05), "\n", genes_1se_0.05)
-#===============================================================================
-
-
-
-
-
-
-
-
-
-#===============================================================================
-#Risk Score Calculation + Grouping
-#===============================================================================
-
-# Get coefficients (as named vector)
-#coef_vector_1.5 <- as.vector(lasso_coef_1.5[lasso_coef_1.5[, 1] != 0])!!!!
-coef_vector_0.05 <- as.vector(lasso_coef_0.05[lasso_coef_0.05[, 1] != 0])
-#names(coef_vector_1.5) <- lasso_genes_1.5!!!!!!!
-names(coef_vector_0.05) <- lasso_genes_0.05
-#|
-# Subset only selected genes from x
-#x_lasso_1.5 <- x_1.5[, lasso_genes_1.5]!!
-x_lasso_0.05<- x_0.05[, lasso_genes_0.05]
-#|
-#|
-#|
-#|
-#Risk score per patient (sample)
-#risk_score_1.5 <- as.numeric(x_lasso_1.5 %*% coef_vector_1.5)!!!!
-risk_score_0.05<- as.numeric(x_lasso_0.05 %*% coef_vector_0.05)
-#|
-# Median split into high- and low-risk
-#median_cutoff_1.5 <- median(risk_score_1.5)!!!!!!!!!!!!
-median_cutoff_0.05 <- median(risk_score_0.05)
-#|
-#risk_group_1.5 <- ifelse(risk_score_1.5 > median_cutoff_1.5, "High", "Low")!!!!!!!!!!!!
-risk_group_0.05 <- ifelse(risk_score_0.05> median_cutoff_0.05, "High", "Low")
-#|
-# Convert to factor
-#risk_group_1.5<- factor(risk_group_1.5, levels = c("Low", "High"))!!!!
-risk_group_0.05 <- factor(risk_group_0.05, levels = c("Low", "High"))
-#===============================================================================
-
-
-
-
-
-
-#KAplan meirer plot=============================================================
-library(survival)
-library(survminer)
-
-# Survival object
-surv_obj <- Surv(surv_time, surv_status)
-
-# Fit KM
-#fit_km_1.5 <- survfit(surv_obj ~ risk_group_1.5)!!!!!!!
-fit_km_0.05 <- survfit(surv_obj ~ risk_group_0.05)
-#|
-#|
-# Plot
-#ggsurvplot(fit_km_1.5,
- #          data = data.frame(risk_group_1.5),
- #          pval = TRUE,
-  #         risk.table = TRUE,
-  #         title = "Survival Curve: High vs Low Risk logfc 1.5",
-   #        palette = c("blue", "red"))
-#
-#|
-#|
-#|
-#|
-
-ggsurvplot(fit_km_0.05,
-           data = data.frame(risk_group_0.05),
-           pval = TRUE,
-           risk.table = TRUE,
-           title = "Survival Curve: High vs Low Risk logfc 0.05",
-           palette = c("blue", "red"))
-
-
-
-#ROC Curve (1/3/5-year Survival)================================================
-
-
-library(timeROC)
-
-roc_obj <- timeROC(T = surv_time,
-                   delta = surv_status,
-                   marker = risk_score_0.05,
-                   cause = 1,
-                   times = c(365, 1095, 1825),
-                   iid = TRUE)
-
-auc_values <- roc_obj$AUC
-names(auc_values) <- c("1yr", "3yr", "5yr")
-# Plot with AUC in legend
-plot(roc_obj, time = 365, col = "blue", title = TRUE)
-plot(roc_obj, time = 1095, add = TRUE, col = "green")
-plot(roc_obj, time = 1825, add = TRUE, col = "red")
-
-legend("bottomright",
-       legend = paste(names(auc_values), "AUC=", round(auc_values, 2)),
-       col = c("blue", "green", "red"),
-       lwd = 2)
-
-#===============================================================================
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-
-
-
-
-
-
-
-#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#Extract genes & check stability across runs
-#===============================================================================
-library(glmnet)
-library(tibble)
-library(dplyr)
-library(ggplot2)
-
-# Parameters
-n_runs <- 100     # Number of repeated LASSO CV runs
-alpha_val <- 1    # LASSO penalty
-nfolds_val <- 10  # CV folds
-seed_base <- 123  # Base seed for reproducibility
+#///////////////////////////////////////////////////////////////////////////////
+n_runs <- 100
+seed_base <- 123
+alpha_val <- 1
+nfolds_val <- 10
+stability_cutoff <- 0.7  # keep genes appearing in >= 70% of runs
 
 gene_list <- list()
 
+# ===============================
+# 100-iteration LASSO stability selection
+# ===============================
 for (i in 1:n_runs) {
-  set.seed(seed_base + i)  # Different seed each run for fold variability
+  set.seed(seed_base + i)  # Different seed for variability
   
   fit <- cv.glmnet(
     x_0.05, y,
@@ -721,17 +553,15 @@ for (i in 1:n_runs) {
   
   coef_opt <- coef(fit, s = "lambda.min")
   selected_genes <- rownames(coef_opt)[which(coef_opt != 0)]
-  selected_genes <- selected_genes[selected_genes != "(Intercept)"]  # Remove intercept
+  selected_genes <- selected_genes[selected_genes != "(Intercept)"]  # remove intercept
   
   gene_list[[i]] <- selected_genes
 }
 
 
+#============================================================
 
-# Frequency table
 gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
-
-
 gene_stability <- as.numeric(gene_freq) / n_runs
 names(gene_stability) <- names(gene_freq)
 
@@ -755,4 +585,102 @@ ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
     y = "Stability (Proportion of Runs)"
   ) +
   theme_minimal()
+
+cat("✅ Stable genes selected (≥", stability_cutoff*100, "% runs):\n")
+print(stable_genes)
+
+gene_stability <- gene_freq / n_runs
+#-----------------------------------------------------------------------
+
+
+stable_gene_names <- names(stable_genes)
+x_stable <- x_0.05[, stable_gene_names, drop = FALSE]
+length(stable_genes) 
+length(x_stable)
+dim(x_stable) 
+
+
+
+fit_final <- cv.glmnet(
+  x_stable, y,
+  family = "cox",
+  alpha = alpha_val,
+  nfolds = nfolds_val
+)
+
+
+
+lasso_coef <- coef(fit_final, s = fit_final$lambda.min)
+lasso_genes <- rownames(lasso_coef)[lasso_coef[, 1] != 0]
+
+
+
+coef_vector <- as.vector(lasso_coef[lasso_coef[, 1] != 0])
+names(coef_vector) <- lasso_genes
+
+# Risk scores
+risk_score <- as.numeric(x_stable[, lasso_genes, drop = FALSE] %*% coef_vector)
+median_cutoff <- median(risk_score)
+risk_group <- ifelse(risk_score > median_cutoff, "High", "Low")
+risk_group <- factor(risk_group, levels = c("Low", "High"))
+
+# ===============================
+# Kaplan-Meier Plot
+# ===============================
+library(survival)
+library(survminer)
+
+surv_obj <- Surv(surv_time, surv_status)
+fit_km <- survfit(surv_obj ~ risk_group)
+
+ggsurvplot(fit_km,
+           data = data.frame(risk_group),
+           pval = TRUE,
+           risk.table = TRUE,
+           title = "Survival Curve: High vs Low Risk (Stable LASSO Genes)",
+           palette = c("blue", "red"))
+
+# ===============================
+# Time-dependent ROC
+# ===============================
+library(timeROC)
+
+roc_obj <- timeROC(
+  T = surv_time,
+  delta = surv_status,
+  marker = risk_score,
+  cause = 1,
+  times = c(365, 1095, 1825),
+  iid = TRUE
+)
+
+auc_values <- roc_obj$AUC
+names(auc_values) <- c("1yr", "3yr", "5yr")
+
+plot(roc_obj, time = 365, col = "blue", title = TRUE)
+plot(roc_obj, time = 1095, add = TRUE, col = "green")
+plot(roc_obj, time = 1825, add = TRUE, col = "red")
+
+legend("bottomright",
+       legend = paste(names(auc_values), "AUC=", round(auc_values, 2)),
+       col = c("blue", "green", "red"),
+       lwd = 2)
+
+
+
+
+#===============================================================================
+#|                                                                            #|
+#|                                                                            #|
+#|                                                                            #|
+#|                                                                            #|
+#|                                                                            #|
+#|                                                                            #|
+#|                                                                            #|
+
+
+
+
+
+
 
