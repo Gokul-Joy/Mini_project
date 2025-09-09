@@ -67,7 +67,7 @@ log_mat <- log2(expr_matrix + 1)                                              #|
 #=============================================================================#|
 
 
-
+dim(log_mat)
 
 # Apply limma=================
 fit <- lmFit(log_mat, design)
@@ -138,17 +138,17 @@ View(deg_tcga_sig_1.5)
 
 library(org.Hs.eg.db)
 symbols_1.5 <- mapIds(org.Hs.eg.db,
-                  keys = rownames(deg_tcga_sig_1.5),
-                  column = "SYMBOL",
-                  keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
-                  multiVals = "first")
-
-
-symbols_0.05 <- mapIds(org.Hs.eg.db,
-                      keys = rownames(deg_tcga_sig_0.05),
+                      keys = rownames(deg_tcga_sig_1.5),
                       column = "SYMBOL",
                       keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
                       multiVals = "first")
+
+
+symbols_0.05 <- mapIds(org.Hs.eg.db,
+                       keys = rownames(deg_tcga_sig_0.05),
+                       column = "SYMBOL",
+                       keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
+                       multiVals = "first")
 
 
 # 6. Clean and save mapped symbols
@@ -178,9 +178,10 @@ library(enrichplot); library(DOSE)
 
 
 #------------------------[ 2. GEO]------------------------
-gse<-raw
-gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
-
+ges<-raw
+#====================================================================================#|
+gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz') #|
+#====================================================================================#|
 
 expr_geo <- exprs(gse)
 pheno <- pData(gse)
@@ -193,6 +194,7 @@ head(rownames(expr_geo), 5)
 head(colnames(expr_geo), 5)
 head(pheno[, 1:5], 3) 
 #========
+head(rownames(expr_geo), 20)
 
 
 labels_geo <- ifelse(pheno$`tissue:ch1` == "Pancreatic tumor", 1, 0)
@@ -204,24 +206,18 @@ table(pheno$`tissue:ch1`)
 length(labels_geo) == ncol(expr_geo)#verify cheyan vendi
 #===================
 
-
-
-
-
-
-
-
+expr_geo_maxvar <- collapsed$datETcollapsed
 
 
 group_geo <- factor(labels_geo)
 design_geo <- model.matrix(~group_geo)
-fit_geo <- lmFit(expr_geo, design_geo)
+fit_geo <- lmFit(expr_geo_maxvar, design_geo)
 fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
 dim(deg_geo)
 dim(deg_tcga)
 #===================================================================================|
-deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1.5, ]  #|
+deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1, ]  #|
 deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]  #|
 deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]#|
 #==================================================================================#|
@@ -289,6 +285,96 @@ probe2gene <- gpl_table[, c("ID", "Gene symbol")]
 colnames(probe2gene) <- c("PROBEID", "SYMBOL")
 probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
 probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
+
+
+
+expr_geo_df <- data.frame(PROBEID = rownames(expr_geo), expr_geo)
+expr_geo_annot <- merge(probe2gene, expr_geo_df, by = "PROBEID")
+
+install.packages("impute", dependencies = TRUE)
+install.packages("WGCNA", dependencies = TRUE)
+# 1) Make sure BiocManager is available
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+# 2) Install the Bioconductor packages WGCNA needs
+BiocManager::install(c("preprocessCore", "impute"), ask = FALSE)
+
+# 3) (Re)install WGCNA from CRAN, ensuring dependencies are pulled
+install.packages("WGCNA", dependencies = TRUE)
+
+# 4) Restart R (important) and load
+# In RStudio: Session -> Restart R, then:
+library(WGCNA)
+)  # for collapseRows
+
+# expr_geo_annot = your merged matrix with PROBEID, SYMBOL, and expression values
+
+# Extract expression matrix (numeric values only)
+expr_matrix <- as.matrix(expr_geo_annot[, -(1:2)])  # drop PROBEID and SYMBOL
+
+# Define mapping of probes → genes
+rowGroup <- expr_geo_annot$SYMBOL   # gene symbols
+rowID    <- expr_geo_annot$PROBEID  # probe IDs
+
+# Collapse rows: keep probe with maximum variance per gene
+collapsed <- collapseRows(datET = expr_matrix,
+                          rowGroup = rowGroup,
+                          rowID = rowID,
+                          method = "maxRowVariance")
+
+# Extract collapsed expression matrix
+expr_geo_maxvar <- collapsed$datETcollapsed
+
+# Check dimensions
+dim(expr_geo_maxvar)
+head(expr_geo_maxvar[,1:5])
+
+
+
+# Simple density plot of collapsed expression values
+library(ggplot2)
+
+ggplot(data.frame(Expression = as.vector(expr_geo_maxvar)),
+       aes(x = Expression)) +
+  geom_density(fill = "steelblue", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Density of Collapsed Gene Expression",
+       x = "Expression Value",
+       y = "Density")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #|
 #|
 #|
@@ -302,73 +388,6 @@ gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
 deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
 deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
 gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
-#================================================================================
-library(GEOquery)
-library(limma)
-library(dplyr)
-
-#==============================
-# 1️⃣ Load series matrix
-#==============================
-gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
-expr_geo <- exprs(gse)
-pheno <- pData(gse)
-
-# Tumor / Normal labels
-labels_geo <- ifelse(pheno$`tissue:ch1` == "Pancreatic tumor", 1, 0)
-
-#==============================
-# 2️⃣ Map probes to gene symbols (GPL6244)
-#==============================
-gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
-gpl_table <- Table(gpl)
-probe2gene <- gpl_table[, c("ID", "Gene symbol")]
-colnames(probe2gene) <- c("PROBEID", "SYMBOL")
-# Take first gene if multiple symbols per probe
-probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
-probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
-
-#==============================
-# 3️⃣ Collapse multiple probes per gene
-#==============================
-expr_geo_df <- as.data.frame(expr_geo)
-expr_geo_df$PROBEID <- rownames(expr_geo_df)
-
-expr_geo_gene <- expr_geo_df %>%
-  left_join(probe2gene, by = "PROBEID") %>%       # map probe → gene symbol
-  filter(!is.na(SYMBOL)) %>%                      # remove probes without symbols
-  group_by(SYMBOL) %>%
-  summarise(across(where(is.numeric), mean))     # average across probes per gene
-
-# Convert back to matrix
-expr_geo_mat <- as.matrix(expr_geo_gene[, -1])
-rownames(expr_geo_mat) <- expr_geo_gene$SYMBOL
-
-#==============================
-# 4️⃣ Limma differential expression
-#==============================
-group_geo <- factor(labels_geo)
-design_geo <- model.matrix(~ group_geo)
-fit_geo <- lmFit(expr_geo_mat, design_geo)
-fit_geo <- eBayes(fit_geo)
-deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
-
-#==============================
-# 5️⃣ Subset DEGs by logFC thresholds
-#==============================
-deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1.5, ]
-deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]
-deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]
-
-# Gene lists for downstream analysis
-gene_geo_1.5 <- rownames(deg_geo_sig_1.5)
-gene_geo_0.05 <- rownames(deg_geo_sig_0.05)
-
-
-
-
-
-
 
 #===============================================================================
 #==================================GEO ending===================================
@@ -395,9 +414,9 @@ entrez_ids_0.05 <- bitr(common_genes_0.05, fromType = "SYMBOL", toType = "ENTREZ
 #|
 # GO
 ego_1.5 <- enrichGO(gene = entrez_ids_1.5$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
-                ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE)
-ego_0.05 <- enrichGO(gene = entrez_ids_0.05$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
                     ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE)
+ego_0.05 <- enrichGO(gene = entrez_ids_0.05$ENTREZID, OrgDb = org.Hs.eg.db, keyType = "ENTREZID",
+                     ont = "ALL", pAdjustMethod = "BH", qvalueCutoff = 0.05, readable = TRUE)
 #|
 #|
 #|
@@ -433,8 +452,8 @@ head(rownames(deg_tcga), 10)
 library(clusterProfiler)
 
 gsea_kegg_1.5 <- gseKEGG(geneList = sort(gene_stats_1.5, decreasing = TRUE),
-                     organism = "hsa",
-                     pvalueCutoff = 0.2)
+                         organism = "hsa",
+                         pvalueCutoff = 0.2)
 
 
 
