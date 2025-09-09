@@ -178,10 +178,9 @@ library(enrichplot); library(DOSE)
 
 
 #------------------------[ 2. GEO]------------------------
+gse<-raw
+gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
 
-#====================================================================================#|
-gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz') #|
-#====================================================================================#|
 
 expr_geo <- exprs(gse)
 pheno <- pData(gse)
@@ -204,6 +203,12 @@ names(pheno)
 table(pheno$`tissue:ch1`)
 length(labels_geo) == ncol(expr_geo)#verify cheyan vendi
 #===================
+
+
+
+
+
+
 
 
 
@@ -297,6 +302,73 @@ gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
 deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
 deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
 gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
+#================================================================================
+library(GEOquery)
+library(limma)
+library(dplyr)
+
+#==============================
+# 1️⃣ Load series matrix
+#==============================
+gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
+expr_geo <- exprs(gse)
+pheno <- pData(gse)
+
+# Tumor / Normal labels
+labels_geo <- ifelse(pheno$`tissue:ch1` == "Pancreatic tumor", 1, 0)
+
+#==============================
+# 2️⃣ Map probes to gene symbols (GPL6244)
+#==============================
+gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
+gpl_table <- Table(gpl)
+probe2gene <- gpl_table[, c("ID", "Gene symbol")]
+colnames(probe2gene) <- c("PROBEID", "SYMBOL")
+# Take first gene if multiple symbols per probe
+probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
+probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
+
+#==============================
+# 3️⃣ Collapse multiple probes per gene
+#==============================
+expr_geo_df <- as.data.frame(expr_geo)
+expr_geo_df$PROBEID <- rownames(expr_geo_df)
+
+expr_geo_gene <- expr_geo_df %>%
+  left_join(probe2gene, by = "PROBEID") %>%       # map probe → gene symbol
+  filter(!is.na(SYMBOL)) %>%                      # remove probes without symbols
+  group_by(SYMBOL) %>%
+  summarise(across(where(is.numeric), mean))     # average across probes per gene
+
+# Convert back to matrix
+expr_geo_mat <- as.matrix(expr_geo_gene[, -1])
+rownames(expr_geo_mat) <- expr_geo_gene$SYMBOL
+
+#==============================
+# 4️⃣ Limma differential expression
+#==============================
+group_geo <- factor(labels_geo)
+design_geo <- model.matrix(~ group_geo)
+fit_geo <- lmFit(expr_geo_mat, design_geo)
+fit_geo <- eBayes(fit_geo)
+deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
+
+#==============================
+# 5️⃣ Subset DEGs by logFC thresholds
+#==============================
+deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1.5, ]
+deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]
+deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]
+
+# Gene lists for downstream analysis
+gene_geo_1.5 <- rownames(deg_geo_sig_1.5)
+gene_geo_0.05 <- rownames(deg_geo_sig_0.05)
+
+
+
+
+
+
 
 #===============================================================================
 #==================================GEO ending===================================
