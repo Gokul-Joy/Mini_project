@@ -258,11 +258,11 @@ dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
 
 
 #------------------------[ Optional GSEA (TCGA only) ]------------------------
-gene_stats_1.5<- deg_tcga$logFC
-names(gene_stats_1.5) <- rownames(deg_tcga)
+gene_stats_1.5<- deg_tcga_sig_0.05$logFC
+names(gene_stats_1.5) <- rownames(deg_tcga_sig_0.05)
 #|
 
-head(rownames(deg_tcga), 10)
+head(rownames(deg_tcga_sig_0.05), 10)
 
 
 library(clusterProfiler)
@@ -280,69 +280,42 @@ dotplot(gsea_kegg_1.5, showCategory = 15, title = "KEGG GSEA logfc1.5 (TCGA-PAAD
 
 
 
+#------------------------[ 1. Download Clinical Data from TCGA ]------------------------
+library(TCGAbiolinks)
 
+# Download clinical data for TCGA-PAAD
+clin_df <- GDCquery_clinic(project = "TCGA-PAAD", type = "clinical")
+head(clin_df)
 
+#------------------------[ 2. Match Clinical Data to Expression Data ]------------------------
+# Extract patient barcodes (first 12 characters) from expression data
+expr_ids <- substr(gsub("\\.", "", colnames(expr_matrix)), 1, 12)
 
-
-
-#  column names
-cat("Expression matrix sample IDs:\n")
-print(head(colnames(expr_matrix)))
-
-#  clinical file again
-clin_raw <- read.delim("D:/MSC/MiniProject/Dataset/firebrowse/clini/PAAD.clin.merged.picked.txt", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-# =============================
-
-
-# Extract base sample ids TCGA2JAAB1
-expr_ids <- gsub("\\.", "", substr(colnames(expr_matrix), 1, 12))  # remove dots
-cat("Cleaned expr IDs:\n")
-print(head(expr_ids))
-
-# =============================
-# =============================
-
-
-clin_data <- clin_raw[-1, ]
-var_names <- clin_data[[1]]
-
-sample_ids_clin <- toupper(gsub("-", "", gsub("TCGA-", "", colnames(clin_data)[-1])))  # already like "TCGA2JAABR"
-clin_matrix <- as.matrix(clin_data[, -1])
-rownames(clin_matrix) <- var_names
-colnames(clin_matrix) <- sample_ids_clin
-
-clin_df <- as.data.frame(t(clin_matrix), stringsAsFactors = FALSE)
-clin_df$SampleID <- rownames(clin_df)
-
-cat("Cleaned clinical SampleIDs:\n")
-print(head(clin_df$SampleID))
-
-# =============================
-# 3. Match samples
-# =============================
-matched_ids <- intersect(expr_ids, clin_df$SampleID)
+# Match clinical data to expression data
+matched_ids <- intersect(expr_ids, clin_df$submitter_id)
 cat("✅ Matched samples: ", length(matched_ids), "\n")
 
-# Subset and reorder
+# Subset and reorder expression and clinical data
 expr_matrix <- expr_matrix[, expr_ids %in% matched_ids]
-clin_df <- clin_df[clin_df$SampleID %in% matched_ids, ]
-clin_df <- clin_df[match(gsub("\\.", "", substr(colnames(expr_matrix), 1, 12)), clin_df$SampleID), ]
+clin_df_matched <- clin_df[match(expr_ids[expr_ids %in% matched_ids], clin_df$submitter_id), ]
 
+#------------------------[ 3. Extract Survival Information ]------------------------
+# Convert survival columns to numeric and vital status to 0/1
+clin_df_matched$vital_status <- ifelse(clin_df_matched$vital_status == "Alive", 0, 1)
+clin_df_matched$days_to_death <- as.numeric(clin_df_matched$days_to_death)
+clin_df_matched$days_to_last_follow_up <- as.numeric(clin_df_matched$days_to_last_follow_up)
 
-# =============================
-# 4. Coerce and create survival objects
-# =============================
-clin_df$vital_status <- as.numeric(clin_df$vital_status)
-clin_df$days_to_death <- as.numeric(clin_df$days_to_death)
-clin_df$days_to_last_followup <- as.numeric(clin_df$days_to_last_followup)
-
-surv_time <- ifelse(is.na(clin_df$days_to_death), clin_df$days_to_last_followup, clin_df$days_to_death)
-surv_status <- clin_df$vital_status
+# Calculate survival time and status
+surv_time <- ifelse(is.na(clin_df_matched$days_to_death),
+                    clin_df_matched$days_to_last_follow_up,
+                    clin_df_matched$days_to_death)
+surv_status <- clin_df_matched$vital_status
 
 # Final check
 summary(surv_time)
 table(surv_status)
 dim(expr_matrix)
+
 
 
 
