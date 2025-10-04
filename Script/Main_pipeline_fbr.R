@@ -1,48 +1,41 @@
+#==============TCGA version=====================================================
 #------------------------[ 1. Download TCGA-PAAD RNA-seq Data with TCGAbiolinks ]------------------------
 library(TCGAbiolinks)
 library(SummarizedExperiment)
 library(DESeq2)
-
 # Query for gene expression (STAR counts) for both tumor and normal
 query <- GDCquery(
-  project = "TCGA-PAAD",
+ project = "TCGA-PAAD",
   data.category = "Transcriptome Profiling",
   data.type = "Gene Expression Quantification",
   workflow.type = "STAR - Counts",
   sample.type = c("Primary Tumor", "Solid Tissue Normal")
 )
 
-GDCdownload(query, method = "client", files.per.chunk = 10)
-# After GDCprepare()
-
+#GDCdownload(query, method = "client", files.per.chunk = 10)
 data <- GDCprepare(query)
-
-
-#============================================================
 # After GDCprepare()
 saveRDS(data, file = "D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
 # Load TCGA data from local RDS
 data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
-#============================================================
-
-
+class(data)
 #------------------------[ 2. Prepare Expression Matrix and Labels ]------------------------
-expr_matrix <- assay(data)  # genes x samples
-pheno <- colData(data)
+expr_tcga <- assay(data)  # CHANGED: renamed from expr_matrix -> expr_tcga to avoid overwrite with GEO
+pheno_tcga <- colData(data)  # CHANGED: renamed to pheno_tcga
 
 # Extract sample types from barcode
-sample_types <- substr(pheno$barcode, 14, 15)
+sample_types <- substr(pheno_tcga$barcode, 14, 15)
 labels <- ifelse(sample_types == "01", "Tumor", "Normal")
 
 # Filter for tumor and normal samples
 valid_types <- sample_types %in% c("01", "11")
-expr_matrix <- expr_matrix[, valid_types]
+expr_tcga <- expr_tcga[, valid_types]   # CHANGED: operate on expr_tcga
 labels <- labels[valid_types]
-pheno <- pheno[valid_types, ]
+pheno_tcga <- pheno_tcga[valid_types, ]
 
 #------------------------[ 3. Create DESeq2 Dataset ]------------------------
 dds <- DESeqDataSetFromMatrix(
-  countData = expr_matrix,
+  countData = expr_tcga,   # CHANGED: use expr_tcga
   colData = data.frame(condition = factor(labels, levels = c("Normal", "Tumor"))),
   design = ~ condition
 )
@@ -56,10 +49,17 @@ res <- lfcShrink(dds, coef = "condition_Tumor_vs_Normal", res = res, type = "ash
 # Order by adjusted p-value
 resOrdered <- res[order(res$padj), ]
 
-# Filter for significant DEGs (adjust as needed)
-deg_deseq2_1 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 1)
-deg_deseq2_0.5 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 0.5)
-deg_deseq2_0.05 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 0.05)
+# CHANGED: define deg_tcga and tidied DEG objects so later references work
+deg_tcga <- as.data.frame(resOrdered)   # CHANGED: create deg_tcga frame for later code that expects this name
+
+deg_tcga_sig_1.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 1, ]   # CHANGED
+deg_tcga_sig_0.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.5, ] # CHANGED
+deg_tcga_sig_0.05 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.05, ] # CHANGED
+
+# Keep original convenience names (if you still want them)
+deg_deseq2_1 <- deg_tcga_sig_1.5        # CHANGED: maintain compatibility
+deg_deseq2_0.5 <- deg_tcga_sig_0.5
+deg_deseq2_0.05 <- deg_tcga_sig_0.05
 
 cat("Number of significant DEGs (logFC>1):", nrow(deg_deseq2_1), "\n")
 cat("Number of significant DEGs (logFC>0.5):", nrow(deg_deseq2_0.5), "\n")
@@ -69,19 +69,18 @@ cat("Number of significant DEGs (logFC>0.05):", nrow(deg_deseq2_0.05), "\n")
 
 
 
-
 library(org.Hs.eg.db)
 symbols_1.5 <- mapIds(org.Hs.eg.db,
                       keys = rownames(deg_tcga_sig_1.5),
                       column = "SYMBOL",
-                      keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
+                      keytype = "ENTREZID",   # left unchanged as requested
                       multiVals = "first")
 
 
 symbols_0.05 <- mapIds(org.Hs.eg.db,
                        keys = rownames(deg_tcga_sig_0.05),
                        column = "SYMBOL",
-                       keytype = "ENTREZID",   # since ID looks like ENTREZ (e.g., 100130426)
+                       keytype = "ENTREZID",   # left unchanged as requested
                        multiVals = "first")
 
 
@@ -97,7 +96,7 @@ genes_tcga_0.05<- unname(symbols_0.05)
 
 
 
-#install.packages("xml2")
+install.packages("xml2")
 
 
 
@@ -135,11 +134,11 @@ expr_geo_annot <- merge(probe2gene, expr_geo_df, by = "PROBEID")
 
 #------------------------[ 4. Collapse Probes to Genes ]------------------------
 library(WGCNA)
-expr_matrix <- as.matrix(expr_geo_annot[, -(1:2)])  # Remove PROBEID and SYMBOL columns
+expr_geo_matrix <- as.matrix(expr_geo_annot[, -(1:2)])  # CHANGED: renamed so we don't overwrite TCGA expr
 rowGroup <- expr_geo_annot$SYMBOL
 rowID <- expr_geo_annot$PROBEID
 
-collapsed <- collapseRows(datET = expr_matrix,
+collapsed <- collapseRows(datET = expr_geo_matrix,
                           rowGroup = rowGroup,
                           rowID = rowID,
                           method = "maxRowVariance")
@@ -182,19 +181,18 @@ ggplot(data.frame(Expression = as.vector(expr_geo_maxvar)),
        y = "Density")
 
 
+
+
+
 #==============================================================================|
-#|
-#|
-#|
-#==================Extra views ahn==============================================
+# GEO extras (volcano etc.) - unchanged
+#==============================================================================|
 
 # Direction: Up and Down
 table(sign(deg_geo_sig_0.05$logFC))  # -1 = down, +1 = up
 summary(deg_geo_sig_0.05)
 
-
-library(ggplot2)# express change kanan vendi ahn this volvcano plot
-
+library(ggplot2)
 deg_geo$threshold <- as.factor(deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05)
 
 ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
@@ -207,28 +205,11 @@ ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
 
 
 
-library(pheatmap)
-
-
-
-#==============================extra end========================================
-
-
-
-
-#===============================================================================
-#==================================GEO ending===================================
-#===============================================================================
-
-
-
-
-
-
 
 #======================Block of common genes and GO nd KEGG=====================
+# CHANGED: use gene lists created earlier (genes_tcga_1.5, genes_tcga_0.05) which we defined from deg_tcga
 common_genes_1.5 <- intersect(gene_geo_1.5, genes_tcga_1.5)
-length(gene_geo_1.5);length(genes_tcga_1.5);
+length(gene_geo_1.5); length(genes_tcga_1.5);
 common_genes_0.05 <- intersect(gene_geo_0.05, genes_tcga_0.05)
 length(common_genes_1.5)
 length(common_genes_0.05)
@@ -253,9 +234,6 @@ ekegg_0.05 <- enrichKEGG(gene = entrez_ids_0.05$ENTREZID, organism = 'hsa', pval
 #|
 #|
 # Plots----------
-#barplot(ego_1.5, showCategory = 15, title = "GO Enrichment")!!!!!!!!
-#dotplot(ekegg_1.5, showCategory = 15, title = "KEGG Pathway Enrichment")!!!!!!!
-
 barplot(ego_0.05, showCategory = 15, title = "GO Enrichment")
 dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
 #===============================================================================
@@ -267,13 +245,13 @@ dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
 
 
 
-
 #------------------------[ Optional GSEA (TCGA only) ]------------------------
-gene_stats_1.5<- deg_tcga_sig_0.05$logFC
-names(gene_stats_1.5) <- rownames(deg_tcga_sig_0.05)
+# CHANGED: ensure deg_tcga exists before using it
+gene_stats_1.5<- deg_tcga$log2FoldChange   # CHANGED: adapted to deg_tcga frame (note: original code used deg_tcga$logFC — here use log2FoldChange)
+names(gene_stats_1.5) <- rownames(deg_tcga)
 #|
 
-head(rownames(deg_tcga_sig_0.05), 10)
+head(rownames(deg_tcga), 10)
 
 
 library(clusterProfiler)
@@ -287,46 +265,74 @@ gsea_kegg_1.5 <- gseKEGG(geneList = sort(gene_stats_1.5, decreasing = TRUE),
 dotplot(gsea_kegg_1.5, showCategory = 15, title = "KEGG GSEA logfc1.5 (TCGA-PAAD)")
 
 
+
+
+
+
+
+
+
+#===============================================================================
+# Clinical matching - Firebrowse custom parsing block (kept but switched to expr_tcga)
 #===============================================================================
 
+#  column names
+cat("Expression matrix sample IDs (TCGA):\n")
+print(head(colnames(expr_tcga)))   # CHANGED: print TCGA expr IDs (was expr_matrix)
+
+#  clinical file again (Firebrowse)
+clin_raw <- read.delim("D:/MSC/MiniProject/Dataset/firebrowse/clini/PAAD.clin.merged.picked.txt", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+# =============================
 
 
-#------------------------[ 1. Download Clinical Data from TCGA ]------------------------
-library(TCGAbiolinks)
+# Extract base sample ids TCGA2JAAB1
+expr_ids <- gsub("\\.", "", substr(colnames(expr_tcga), 1, 12))  # CHANGED: use expr_tcga
+cat("Cleaned expr IDs:\n")
+print(head(expr_ids))
 
-# Download clinical data for TCGA-PAAD
-clin_df <- GDCquery_clinic(project = "TCGA-PAAD", type = "clinical")
-head(clin_df)
+# =============================
+# =============================
 
-#------------------------[ 2. Match Clinical Data to Expression Data ]------------------------
-# Extract patient barcodes (first 12 characters) from expression data
-expr_ids <- substr(gsub("\\.", "", colnames(expr_matrix)), 1, 12)
 
-# Match clinical data to expression data
-matched_ids <- intersect(expr_ids, clin_df$submitter_id)
+clin_data <- clin_raw[-1, ]
+var_names <- clin_data[[1]]
+
+sample_ids_clin <- toupper(gsub("-", "", gsub("TCGA-", "", colnames(clin_data)[-1])))  # already like "TCGA2JAABR"
+clin_matrix <- as.matrix(clin_data[, -1])
+rownames(clin_matrix) <- var_names
+colnames(clin_matrix) <- sample_ids_clin
+
+clin_df <- as.data.frame(t(clin_matrix), stringsAsFactors = FALSE)
+clin_df$SampleID <- rownames(clin_df)
+
+cat("Cleaned clinical SampleIDs:\n")
+print(head(clin_df$SampleID))
+
+# =============================
+# 3. Match samples
+# =============================
+matched_ids <- intersect(expr_ids, clin_df$SampleID)
 cat("✅ Matched samples: ", length(matched_ids), "\n")
 
-# Subset and reorder expression and clinical data
-expr_matrix <- expr_matrix[, expr_ids %in% matched_ids]
-clin_df_matched <- clin_df[match(expr_ids[expr_ids %in% matched_ids], clin_df$submitter_id), ]
+# Subset and reorder
+expr_tcga <- expr_tcga[, expr_ids %in% matched_ids]   # CHANGED: operate on expr_tcga
+clin_df <- clin_df[clin_df$SampleID %in% matched_ids, ]
+clin_df <- clin_df[match(gsub("\\.", "", substr(colnames(expr_tcga), 1, 12)), clin_df$SampleID), ]  # CHANGED
 
-#------------------------[ 3. Extract Survival Information ]------------------------
-# Convert survival columns to numeric and vital status to 0/1
-clin_df_matched$vital_status <- ifelse(clin_df_matched$vital_status == "Alive", 0, 1)
-clin_df_matched$days_to_death <- as.numeric(clin_df_matched$days_to_death)
-clin_df_matched$days_to_last_follow_up <- as.numeric(clin_df_matched$days_to_last_follow_up)
+# =============================
+# 4. Coerce and create survival objects
+# =============================
+clin_df$vital_status <- as.numeric(clin_df$vital_status)
+clin_df$days_to_death <- as.numeric(clin_df$days_to_death)
+clin_df$days_to_last_followup <- as.numeric(clin_df$days_to_last_followup)
 
-# Calculate survival time and status
-surv_time <- ifelse(is.na(clin_df_matched$days_to_death),
-                    clin_df_matched$days_to_last_follow_up,
-                    clin_df_matched$days_to_death)
-surv_status <- clin_df_matched$vital_status
+surv_time <- ifelse(is.na(clin_df$days_to_death), clin_df$days_to_last_followup, clin_df$days_to_death)
+surv_status <- clin_df$vital_status
 
 # Final check
 summary(surv_time)
 table(surv_status)
-dim(expr_matrix)
-
+dim(expr_tcga)   # CHANGED: print dims of expr_tcga
 
 
 
@@ -341,46 +347,39 @@ dim(expr_matrix)
 length(common_genes_1.5)
 length(common_genes_0.05)
 
-head(rownames(expr_matrix), 10)
+head(rownames(expr_tcga), 10)   # CHANGED
 
 head(common_genes_1.5)
 head(common_genes_0.05)
-
-
-
-
-
-
-
 
 library(org.Hs.eg.db)
 
 # Entrez 
 symbols <- mapIds(org.Hs.eg.db,
-                  keys = rownames(expr_matrix),
+                  keys = rownames(expr_tcga),   # CHANGED: use expr_tcga rownames
                   column = "SYMBOL",
                   keytype = "ENTREZID",
                   multiVals = "first")
 
-# Remove rows with NA JUST FR SAFE
+# Remove rows with NA JUST FOR SAFE
 valid_idx <- !is.na(symbols)
-expr_matrix <- expr_matrix[valid_idx, ]
+expr_tcga <- expr_tcga[valid_idx, ]   # CHANGED
 symbols <- symbols[valid_idx]
 
 # Assign gene symbols as rownames
-rownames(expr_matrix) <- symbols
+rownames(expr_tcga) <- symbols    # CHANGED
 
 # Remove duplicated gene symbols (if any)
-expr_matrix <- expr_matrix[!duplicated(rownames(expr_matrix)), ]
+expr_tcga <- expr_tcga[!duplicated(rownames(expr_tcga)), ]
 
 # Confirm new gene symbols
 cat("New expression matrix rownames (symbols):\n")
-print(head(rownames(expr_matrix)))
+print(head(rownames(expr_tcga)))
 
 #///////////////////////////////////////////////////////////////////////////////
 # Filter expression matrix to common genes======================================
-expr_common_1.5 <- expr_matrix[rownames(expr_matrix) %in% common_genes_1.5, ]
-expr_common_0.05 <- expr_matrix[rownames(expr_matrix) %in% common_genes_0.05, ]
+expr_common_1.5 <- expr_tcga[rownames(expr_tcga) %in% common_genes_1.5, ]   # CHANGED
+expr_common_0.05 <- expr_tcga[rownames(expr_tcga) %in% common_genes_0.05, ] # CHANGED
 
 # Double-check dimensions
 cat("Expression matrix after gene filtering:\n")
@@ -453,7 +452,7 @@ for (i in 1:n_runs) {
 #============================================================
 
 gene_freq <- sort(table(unlist(gene_list)), decreasing = TRUE)
-gene_stability <- as.numeric(gene_freq) / n_runs
+gene_stability <- as.numeric(gene_freq) / n_runs   # CHANGED: keep single canonical definition with names
 names(gene_stability) <- names(gene_freq)
 
 # View stable genes (≥ 70% of runs)
@@ -462,7 +461,13 @@ print(stable_genes)
 
 
 
+
+
+
+
+
 # Plot stability
+# CHANGED: keep gene_stability as numeric vector with names so this works downstream
 gene_df <- as.data.frame(gene_stability) %>%
   rownames_to_column("Gene") %>%
   rename(Stability = gene_stability)
@@ -480,7 +485,7 @@ ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
 cat("✅ Stable genes selected (≥", stability_cutoff*100, "% runs):\n")
 print(stable_genes)
 
-gene_stability <- gene_freq / n_runs
+# gene_stability <- gene_freq / n_runs   # CHANGED: removed duplicate re-assignment (was redundant)
 #-----------------------------------------------------------------------
 
 
@@ -489,6 +494,12 @@ x_stable <- x_0.05[, stable_gene_names, drop = FALSE]
 length(stable_genes) 
 length(x_stable)
 dim(x_stable) 
+
+
+
+
+
+
 
 
 
@@ -556,22 +567,3 @@ legend("bottomright",
        legend = paste(names(auc_values), "AUC=", round(auc_values, 2)),
        col = c("blue", "green", "red"),
        lwd = 2)
-
-
-
-
-#===============================================================================
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-#|                                                                            #|
-
-
-
-
-
-
-
