@@ -1,8 +1,9 @@
 #------------------------[ 1. Download TCGA-PAAD RNA-seq Data with TCGAbiolinks ]------------------------
 library(TCGAbiolinks)
 library(SummarizedExperiment)
+library(DESeq2)
 
-# Query for gene expression (HTSeq counts) for both tumor and normal
+# Query for gene expression (STAR counts) for both tumor and normal
 query <- GDCquery(
   project = "TCGA-PAAD",
   data.category = "Transcriptome Profiling",
@@ -11,96 +12,48 @@ query <- GDCquery(
   sample.type = c("Primary Tumor", "Solid Tissue Normal")
 )
 
-GDCdownload(query)
+GDCdownload(query, method = "client", files.per.chunk = 10)
 data <- GDCprepare(query)
 
-# Extract expression matrix and sample info
+#------------------------[ 2. Prepare Expression Matrix and Labels ]------------------------
 expr_matrix <- assay(data)  # genes x samples
 pheno <- colData(data)
 
-#------------------------[ 2. Prepare Labels ]------------------------
-# 01 = tumor, 11 = normal (TCGA barcode)
+# Extract sample types from barcode
 sample_types <- substr(pheno$barcode, 14, 15)
-labels_tcga <- ifelse(sample_types == "01", 1, 0)
-labels <- labels_tcga
+labels <- ifelse(sample_types == "01", "Tumor", "Normal")
 
-#------------------------[ 3. Filter for Tumor and Normal Samples ]------------------------
+# Filter for tumor and normal samples
 valid_types <- sample_types %in% c("01", "11")
 expr_matrix <- expr_matrix[, valid_types]
 labels <- labels[valid_types]
 pheno <- pheno[valid_types, ]
 
-#------------------------[ 4. Normalization and Transformation ]------------------------
-# TCGAbiolinks normalization (upper quartile)
-expr_matrix_norm <- TCGAanalyze_Normalization(tabDF = expr_matrix, geneInfo = geneInfoHT, method = "gcContent")
-
-# Log2 transformation (if using limma directly, use voom instead)
-# log_mat <- log2(expr_matrix_norm + 1)
-
-#------------------------[ 5. Differential Expression Analysis ]------------------------
-library(limma)
-group <- factor(labels, levels = c(0, 1))  # 0 = normal, 1 = tumor
-design <- model.matrix(~ group)
-
-# Use voom for count data
-v <- voom(expr_matrix_norm, design)
-fit <- lmFit(v, design)
-fit <- eBayes(fit)
-
-# Extract DEGs
-deg_tcga <- topTable(fit, coef = 2, number = Inf, adjust = "fdr")
-
-
-
-
-
-#===============================================================================
-#To see the histogram of pval desgs
-
-# Filter significant DEGs
-sig_degs <- deg_tcga[deg_tcga$adj.P.Val < 0.05, ]
-
-
-# Plot histogram of logFC values
-hist(
-  sig_degs$logFC,
-  breaks = 50,                    # Number of bins
-  col = "skyblue",                # Color of bars
-  border = "white",               # No border color
-  main = "Distribution of log2 Fold Change (Significant DEGs)",
-  xlab = "log2 Fold Change (logFC)",
-  ylab = "Number of Genes"
+#------------------------[ 3. Create DESeq2 Dataset ]------------------------
+dds <- DESeqDataSetFromMatrix(
+  countData = expr_matrix,
+  colData = data.frame(condition = factor(labels, levels = c("Normal", "Tumor"))),
+  design = ~ condition
 )
 
-# Add vertical lines for thresholds (optional)
-abline(v = c(-1.5, -1, -0.5, 0.5, 1, 1.5), col = "red", lty = 2)
+#------------------------[ 4. Run DESeq2 Analysis ]------------------------
+dds <- DESeq(dds)
+res <- results(dds, contrast = c("condition", "Tumor", "Normal"))
+res <- lfcShrink(dds, coef = "condition_Tumor_vs_Normal", res = res, type = "ashr") # optional, for more accurate logFC
 
-summary(sig_degs$logFC)
-range(sig_degs$logFC, na.rm = TRUE)
-#===============================================================================
+#------------------------[ 5. Extract and Filter DEGs ]------------------------
+# Order by adjusted p-value
+resOrdered <- res[order(res$padj), ]
 
+# Filter for significant DEGs (adjust as needed)
+deg_deseq2_1 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 1)
+deg_deseq2_0.5 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 0.5)
+deg_deseq2_0.05 <- subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 0.05)
 
+cat("Number of significant DEGs (logFC>1):", nrow(deg_deseq2_1), "\n")
+cat("Number of significant DEGs (logFC>0.5):", nrow(deg_deseq2_0.5), "\n")
+cat("Number of significant DEGs (logFC>0.05):", nrow(deg_deseq2_0.05), "\n")
 
-
-
-
-
-# Filter significant DEGs===========================================================|
-deg_tcga_sig_1.5 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 1.5)          #|
-deg_tcga_sig_1 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 1)              #|
-deg_tcga_sig_0.5 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 0.5)          #|
-deg_tcga_sig_0.05 <- subset(deg_tcga, adj.P.Val < 0.05 & abs(logFC) > 0.05)        #|   
-deg_tcga_sig_0.05_pval_0.1 <- subset(deg_tcga, adj.P.Val < 0.1 & abs(logFC) > 0.05)#|
-#===================================================================================|
-
-
-
-# Summary=======================================================================================|
-cat("Total DEGs for 1.5:", nrow(deg_tcga_sig_1.5), "\n")                                       #|
-cat("Total DEGs for 1:", nrow(deg_tcga_sig_1), "\n")                                           #|
-cat("Total DEGs for 0.5:", nrow(deg_tcga_sig_0.5), "\n")                                       #|
-cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.05), "\n")                                #|
-cat("Total DEGs for logFC > 0.05 and adj.P.Val < 0.1:", nrow(deg_tcga_sig_0.05_pval_0.1), "\n")#|
 #==============================================================================================#|
 
 
