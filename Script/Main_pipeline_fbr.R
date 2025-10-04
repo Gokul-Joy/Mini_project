@@ -245,19 +245,7 @@ ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
 
 library(pheatmap)
 
-#Top 50
-top_genes <- rownames(deg_geo_sig_0.05)[1:min(50, nrow(deg_geo_sig_0.05))]
-heat_data <- expr_geo[top_genes, ]
 
-#z-score norm
-heat_data_scaled <- t(scale(t(heat_data)))
-#annotation 
-annotation_col <- data.frame(Group = factor(labels_geo))
-rownames(annotation_col) <- colnames(heat_data_scaled)
-pheatmap(heat_data_scaled,
-         annotation_col = annotation_col,
-         show_rownames = FALSE,
-         main = "Top 50 DEGs Heatmap - GEO")
 
 #==============================extra end========================================
 
