@@ -1,78 +1,51 @@
+#------------------------[ 1. Download TCGA-PAAD RNA-seq Data with TCGAbiolinks ]------------------------
+library(TCGAbiolinks)
+library(SummarizedExperiment)
 
-raw <- read.delim('paad.txt', header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
+# Query for gene expression (HTSeq counts) for both tumor and normal
+query <- GDCquery(
+  project = "TCGA-PAAD",
+  data.category = "Transcriptome Profiling",
+  data.type = "Gene Expression Quantification",
+  workflow.type = "STAR - Counts",
+  sample.type = c("Primary Tumor", "Solid Tissue Normal")
+)
 
-# Extract real sample IDs from first row (excluding gene_id column)
-sample_ids <- as.character(unlist(raw[1, -1]))  # remove first column
+GDCdownload(query)
+data <- GDCprepare(query)
 
-# Data starts from 3rd row onward — remove 1st (sample names) and 2nd row (repeated "normalized_counts")
-expr_data <- raw[-1, ]
+# Extract expression matrix and sample info
+expr_matrix <- assay(data)  # genes x samples
+pheno <- colData(data)
 
-
-
-colnames(expr_data)[1]<-'gene_id'S
-
-# Remove repeated "gene_id" in expression data rows
-expr_data$gene_id <- sub(".*\\|", "", expr_data$gene_id)
-
-# Set gene_id as rownames and drop that column
-rownames(expr_data) <- expr_data$gene_id
-expr_data <- expr_data[, -1]
-
-
-
-
-
-# Convert expression values to numeric
-expr_matrix <- as.data.frame(lapply(expr_data, as.numeric))
-expr_matrix <- as.matrix(expr_matrix)
-rownames(expr_matrix) <- rownames(expr_data)
-
-dim(expr_matrix)
-
-
-sample_ids <- colnames(expr_matrix)  # Save column names first
-
-# Extract the 14th-15th characters (sample type codes)
-sample_types <- substr(sample_ids, 14, 15)
-
-# Double check lengths match
-length(sample_types) == ncol(expr_matrix)  # should return TRUE
-
-
-
-valid_types <- sample_types %in% c("01", "11")
-
-# Now safely subset the matrix and other variables
-expr_matrix <- expr_matrix[, valid_types]
-sample_types <- sample_types[valid_types]
+#------------------------[ 2. Prepare Labels ]------------------------
+# 01 = tumor, 11 = normal (TCGA barcode)
+sample_types <- substr(pheno$barcode, 14, 15)
 labels_tcga <- ifelse(sample_types == "01", 1, 0)
-labels<-labels_tcga
-sample_ids <- colnames(expr_matrix)
+labels <- labels_tcga
 
+#------------------------[ 3. Filter for Tumor and Normal Samples ]------------------------
+valid_types <- sample_types %in% c("01", "11")
+expr_matrix <- expr_matrix[, valid_types]
+labels <- labels[valid_types]
+pheno <- pheno[valid_types, ]
 
+#------------------------[ 4. Normalization and Transformation ]------------------------
+# TCGAbiolinks normalization (upper quartile)
+expr_matrix_norm <- TCGAanalyze_Normalization(tabDF = expr_matrix, geneInfo = geneInfoHT, method = "gcContent")
 
+# Log2 transformation (if using limma directly, use voom instead)
+# log_mat <- log2(expr_matrix_norm + 1)
 
-# Load limma package
+#------------------------[ 5. Differential Expression Analysis ]------------------------
 library(limma)
-
-# Create design matrix: tumor (1) vs normal (0)
 group <- factor(labels, levels = c(0, 1))  # 0 = normal, 1 = tumor
 design <- model.matrix(~ group)
 
-
-#log transform================================================================#|
-log_mat <- log2(expr_matrix + 1)                                              #|
-#=============================================================================#|
-
-
-dim(log_mat)
-
-# Apply limma=================
-fit <- lmFit(log_mat, design)
-fit <- eBayes(fit,trend = TRUE)
-#=============================
-
-plotSA(fit, main="Mean-variance with log transform")
+# Use voom for count data
+v <- voom(expr_matrix_norm, design)
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
 
 # Extract DEGs
 deg_tcga <- topTable(fit, coef = 2, number = Inf, adjust = "fdr")
@@ -160,6 +133,7 @@ genes_tcga_0.05<- unname(symbols_0.05)
 
 
 
+install.packages("xml2")
 
 
 
