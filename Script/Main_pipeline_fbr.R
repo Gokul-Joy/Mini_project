@@ -132,8 +132,7 @@ cat("Total DEGs for fold >0.05:", nrow(deg_tcga_sig_0.05), "\n")                
 cat("Total DEGs for logFC > 0.05 and adj.P.Val < 0.1:", nrow(deg_tcga_sig_0.05_pval_0.1), "\n")#|
 #==============================================================================================#|
 
-View(deg_tcga_sig)
-View(deg_tcga_sig_1.5)
+
 
 
 library(org.Hs.eg.db)
@@ -178,57 +177,74 @@ library(enrichplot); library(DOSE)
 
 
 #------------------------[ 2. GEO]------------------------
-ges<-raw
-#====================================================================================#|
-gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz') #|
-#====================================================================================#|
-
+#------------------------[ 1. Load GEO Data ]------------------------
+gse <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
 expr_geo <- exprs(gse)
 pheno <- pData(gse)
 
-
-#========
-
-dim(expr_geo)  # Genes × Samples data
-head(rownames(expr_geo), 5)
-head(colnames(expr_geo), 5)
-head(pheno[, 1:5], 3) 
-#========
-head(rownames(expr_geo), 20)
-
-
+#------------------------[ 2. Sample Labels ]------------------------
 labels_geo <- ifelse(pheno$`tissue:ch1` == "Pancreatic tumor", 1, 0)
+stopifnot(length(labels_geo) == ncol(expr_geo))  # Check label/sample match
 
+#------------------------[ 3. Probe to Gene Mapping ]------------------------
+gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
+gpl_table <- Table(gpl)
+probe2gene <- gpl_table[, c("ID", "Gene symbol")]
+colnames(probe2gene) <- c("PROBEID", "SYMBOL")
+probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
+probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
 
-#==================
-names(pheno)
-table(pheno$`tissue:ch1`)
-length(labels_geo) == ncol(expr_geo)#verify cheyan vendi
-#===================
+expr_geo_df <- data.frame(PROBEID = rownames(expr_geo), expr_geo)
+expr_geo_annot <- merge(probe2gene, expr_geo_df, by = "PROBEID")
 
+#------------------------[ 4. Collapse Probes to Genes ]------------------------
+library(WGCNA)
+expr_matrix <- as.matrix(expr_geo_annot[, -(1:2)])  # Remove PROBEID and SYMBOL columns
+rowGroup <- expr_geo_annot$SYMBOL
+rowID <- expr_geo_annot$PROBEID
+
+collapsed <- collapseRows(datET = expr_matrix,
+                          rowGroup = rowGroup,
+                          rowID = rowID,
+                          method = "maxRowVariance")
 expr_geo_maxvar <- collapsed$datETcollapsed
 
-
+#------------------------[ 5. Differential Expression Analysis ]------------------------
+library(limma)
 group_geo <- factor(labels_geo)
 design_geo <- model.matrix(~group_geo)
 fit_geo <- lmFit(expr_geo_maxvar, design_geo)
 fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
-dim(deg_geo)
-dim(deg_tcga)
-#===================================================================================|
-deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1, ]  #|
-deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]  #|
-deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]#|
-#==================================================================================#|
 
+#------------------------[ 6. Filter Significant DEGs ]------------------------
+deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1, ]
+deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]
+deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05, ]
 
-
-
-#==============================================================================|
 cat("Number of significant DEGs 1.5:", nrow(deg_geo_sig_1.5), "\n")
 cat("Number of significant DEGs 0.5:", nrow(deg_geo_sig_0.5), "\n")
 cat("Number of significant DEGs 0.05:", nrow(deg_geo_sig_0.05), "\n")
+
+#------------------------[ 7. Map DEGs to Gene Symbols ]------------------------
+deg_geo_sig_1.5$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_1.5), probe2gene$PROBEID)]
+deg_geo_sig_1.5 <- deg_geo_sig_1.5[!is.na(deg_geo_sig_1.5$SYMBOL), ]
+gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
+
+deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
+deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
+gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
+
+#------------------------[ 8. Plot Density of Collapsed Expression ]------------------------
+library(ggplot2)
+ggplot(data.frame(Expression = as.vector(expr_geo_maxvar)),
+       aes(x = Expression)) +
+  geom_density(fill = "steelblue", alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Density of Collapsed Gene Expression",
+       x = "Expression Value",
+       y = "Density")
+
 
 #==============================================================================|
 #|
@@ -275,119 +291,6 @@ pheatmap(heat_data_scaled,
 
 
 
-
-
-
-# Probe -> Gene symbol (GPL6244)
-gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
-gpl_table <- Table(gpl)
-probe2gene <- gpl_table[, c("ID", "Gene symbol")]
-colnames(probe2gene) <- c("PROBEID", "SYMBOL")
-probe2gene$SYMBOL <- sapply(strsplit(probe2gene$SYMBOL, "///", fixed = TRUE), `[`, 1)
-probe2gene <- probe2gene[!is.na(probe2gene$SYMBOL) & probe2gene$SYMBOL != "", ]
-
-
-
-expr_geo_df <- data.frame(PROBEID = rownames(expr_geo), expr_geo)
-expr_geo_annot <- merge(probe2gene, expr_geo_df, by = "PROBEID")
-
-install.packages("impute", dependencies = TRUE)
-install.packages("WGCNA", dependencies = TRUE)
-# 1) Make sure BiocManager is available
-if (!requireNamespace("BiocManager", quietly = TRUE))
-  install.packages("BiocManager")
-
-# 2) Install the Bioconductor packages WGCNA needs
-BiocManager::install(c("preprocessCore", "impute"), ask = FALSE)
-
-# 3) (Re)install WGCNA from CRAN, ensuring dependencies are pulled
-install.packages("WGCNA", dependencies = TRUE)
-
-# 4) Restart R (important) and load
-# In RStudio: Session -> Restart R, then:
-library(WGCNA)
-)  # for collapseRows
-
-# expr_geo_annot = your merged matrix with PROBEID, SYMBOL, and expression values
-
-# Extract expression matrix (numeric values only)
-expr_matrix <- as.matrix(expr_geo_annot[, -(1:2)])  # drop PROBEID and SYMBOL
-
-# Define mapping of probes → genes
-rowGroup <- expr_geo_annot$SYMBOL   # gene symbols
-rowID    <- expr_geo_annot$PROBEID  # probe IDs
-
-# Collapse rows: keep probe with maximum variance per gene
-collapsed <- collapseRows(datET = expr_matrix,
-                          rowGroup = rowGroup,
-                          rowID = rowID,
-                          method = "maxRowVariance")
-
-# Extract collapsed expression matrix
-expr_geo_maxvar <- collapsed$datETcollapsed
-
-# Check dimensions
-dim(expr_geo_maxvar)
-head(expr_geo_maxvar[,1:5])
-
-
-
-# Simple density plot of collapsed expression values
-library(ggplot2)
-
-ggplot(data.frame(Expression = as.vector(expr_geo_maxvar)),
-       aes(x = Expression)) +
-  geom_density(fill = "steelblue", alpha = 0.5) +
-  theme_minimal() +
-  labs(title = "Density of Collapsed Gene Expression",
-       x = "Expression Value",
-       y = "Density")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#|
-#|
-#|
-#|
-#Trying two set of LOGFC
-#--------------------
-deg_geo_sig_1.5$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_1.5), probe2gene$PROBEID)]
-deg_geo_sig_1.5 <- deg_geo_sig_1.5[!is.na(deg_geo_sig_1.5$SYMBOL), ]
-gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
-#-------------------
-deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
-deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
-gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
 
 #===============================================================================
 #==================================GEO ending===================================
