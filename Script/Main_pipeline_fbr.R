@@ -13,7 +13,18 @@ query <- GDCquery(
 )
 
 GDCdownload(query, method = "client", files.per.chunk = 10)
+# After GDCprepare()
+
 data <- GDCprepare(query)
+
+
+#============================================================
+# After GDCprepare()
+saveRDS(data, file = "D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
+# Load TCGA data from local RDS
+data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
+#============================================================
+
 
 #------------------------[ 2. Prepare Expression Matrix and Labels ]------------------------
 expr_matrix <- assay(data)  # genes x samples
