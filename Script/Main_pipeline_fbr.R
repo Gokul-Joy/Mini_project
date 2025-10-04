@@ -9,7 +9,7 @@ expr_data <- raw[-1, ]
 
 
 
-colnames(expr_data)[1]<-'gene_id'
+colnames(expr_data)[1]<-'gene_id'S
 
 # Remove repeated "gene_id" in expression data rows
 expr_data$gene_id <- sub(".*\\|", "", expr_data$gene_id)
@@ -48,8 +48,6 @@ sample_types <- sample_types[valid_types]
 labels_tcga <- ifelse(sample_types == "01", 1, 0)
 labels<-labels_tcga
 sample_ids <- colnames(expr_matrix)
-
-
 
 
 
