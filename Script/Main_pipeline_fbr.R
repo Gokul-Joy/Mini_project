@@ -1,38 +1,29 @@
 #==============TCGA version=====================================================
 #------------------------[ 1. Load Libraries ]------------------------
 # Install Bioconductor packages if not already installed
-if (!requireNamespace("BiocManager", quietly = TRUE))
+#if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
 #BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
 
-# Load required libraries
-# Load libraries
 library(TCGAbiolinks)
 library(recount)
 library(DESeq2)
 library(biomaRt)
 library(org.Hs.eg.db)
 
-
-
-#------------------------[ 2. Load Data ]------------------------
-# Load TCGA PAAD RNA-seq data from local RDS (avoid re-downloading)
+# Load TCGA data (original step)
 data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
 expr_tcga <- assay(data)        # genes x samples
 pheno_tcga <- colData(data)
 
-#------------------------[ 2a. Filter Protein-Coding Genes ]------------------------
+# Filter TCGA for protein-coding genes
 ensembl <- useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
-ensembl_ids <- gsub("\\..*","",rownames(expr_tcga))  # remove version suffix
-
-# Get gene type info
+ensembl_ids <- gsub("\\..*","",rownames(expr_tcga))
 gene_info <- getBM(attributes=c("ensembl_gene_id","gene_biotype","external_gene_name"),
                    filters="ensembl_gene_id",
                    values=ensembl_ids,
                    mart=ensembl)
-
-# Keep only protein-coding genes
 protein_coding_ids <- gene_info$ensembl_gene_id[gene_info$gene_biotype=="protein_coding"]
 keep_idx <- ensembl_ids %in% protein_coding_ids
 expr_tcga <- expr_tcga[keep_idx, ]
@@ -40,36 +31,145 @@ expr_tcga <- expr_tcga[keep_idx, ]
 # Map Ensembl IDs → gene symbols
 gene_symbols <- gene_info$external_gene_name[match(ensembl_ids[keep_idx],
                                                    gene_info$ensembl_gene_id)]
-
-# Remove rows with NA gene symbols
 valid_idx <- !is.na(gene_symbols)
 expr_tcga <- expr_tcga[valid_idx, ]
 rownames(expr_tcga) <- gene_symbols[valid_idx]
 
-cat("Dimensions after filtering protein-coding genes:", dim(expr_tcga), "\n")
-
-#------------------------[ 2b. Extract sample types and filter samples ]------------------------
+# Filter sample types in TCGA
 sample_types <- substr(pheno_tcga$barcode, 14, 15)
 labels <- ifelse(sample_types == "01", "Tumor", "Normal")
 valid_samples <- sample_types %in% c("01", "11")
-
 expr_tcga <- expr_tcga[, valid_samples]
 labels <- labels[valid_samples]
 pheno_tcga <- pheno_tcga[valid_samples, ]
 
-#------------------------[ 3. Create DESeq2 Dataset ]------------------------
-dds <- DESeqDataSetFromMatrix(
-  countData = expr_tcga,
-  colData = data.frame(condition = factor(labels, levels = c("Normal", "Tumor"))),
-  design = ~ condition
+# ------------------------------
+# STEP 1: Process GTEx data (your code)
+
+library(recount3)
+
+# Download GTEx pancreas data as RangedSummarizedExperiment
+#rse_pancreas <- create_rse_manual(
+ # project = "PANCREAS",
+  #project_home = "data_sources/gtex",
+  #organism = "human",
+  #annotation = "gencode_v26",
+  #type = "gene"
+#)
+
+# Extract raw counts matrix
+expr_counts <- assay(rse_pancreas, "raw_counts")
+
+# Optionally save for later use
+#saveRDS(rse_pancreas, "gtex_pancreas_rse.rds")
+#saveRDS(expr_counts, "D:/MSC/MiniProject/gtex_pancreas_raw_counts.rds")
+expr_counts <- readRDS("D:/MSC/MiniProject/gtex_pancreas_raw_counts.rds")
+
+gtex_ensembl_ids <- gsub("\\..*","",rownames(expr_counts))
+# Get gene info from same biomaRt (make sure using same Ensembl version)
+gene_info_gtex <- getBM(attributes=c("ensembl_gene_id","gene_biotype","external_gene_name"),
+                        filters="ensembl_gene_id",
+                        values=gtex_ensembl_ids,
+                        mart=ensembl)
+protein_coding_gtex <- gene_info_gtex$ensembl_gene_id[gene_info_gtex$gene_biotype=="protein_coding"]
+keep_idx_gtex <- gtex_ensembl_ids %in% protein_coding_gtex
+
+expr_gtex_filtered <- expr_counts[keep_idx_gtex, ]
+gene_symbols_gtex <- gene_info_gtex$external_gene_name[match(gtex_ensembl_ids[keep_idx_gtex], gene_info_gtex$ensembl_gene_id)]
+valid_gtex <- !is.na(gene_symbols_gtex)
+expr_gtex_filtered <- expr_gtex_filtered[valid_gtex, ]
+rownames(expr_gtex_filtered) <- gene_symbols_gtex[valid_gtex]
+# Remove duplicate gene symbols if any
+expr_gtex_filtered <- expr_gtex_filtered[!duplicated(rownames(expr_gtex_filtered)), ]
+
+
+
+#===============================================================================
+
+library(WGCNA)
+
+# Your current TCGA expression matrix with duplicates
+expr_tcga_matrix <- expr_tcga  # assuming your current expr_tcga object
+
+# Clean up: Remove rows with blank or NA gene symbols (rownames) or Ensembl IDs
+rowGroup <- rownames(expr_tcga_matrix)                   # gene symbols
+rowID_raw <- rownames(expr_tcga_matrix)                  # original rownames with versions
+
+# Extract Ensembl IDs by removing version suffix (e.g. ENSG000001.1 -> ENSG000001)
+rowID <- gsub("\\..*", "", rowID_raw)
+
+# Identify rows with blanks or NAs in gene symbols or Ensembl IDs
+valid_rows <- !(rowGroup == "" | is.na(rowGroup) | rowID == "" | is.na(rowID))
+expr_tcga_clean <- expr_tcga_matrix[valid_rows, ]
+rowGroup_clean <- rownames(expr_tcga_clean)
+rowID_clean_raw <- rownames(expr_tcga_clean)
+rowID_clean <- gsub("\\..*", "", rowID_clean_raw)
+
+# Ensure unique rowID by appending suffixes to duplicates if any remain
+dup_flags <- duplicated(rowID_clean) | duplicated(rowID_clean, fromLast = TRUE)
+rowID_unique <- rowID_clean
+rowID_unique[dup_flags] <- make.unique(rowID_clean[dup_flags])
+
+# Collapse duplicates by maxRowVariance using cleaned and unique IDs
+collapsed <- collapseRows(
+  datET = expr_tcga_clean,
+  rowGroup = rowGroup_clean,
+  rowID = rowID_unique,
+  method = "maxRowVariance"
 )
 
-#------------------------[ 4. Run DESeq2 Analysis ]------------------------
+# Extract collapsed matrix with unique gene symbols
+expr_tcga_collapsed <- collapsed$datETcollapsed
+
+# Sanity checks
+cat("Dimensions after collapsing:", dim(expr_tcga_collapsed), "\n")
+cat("Duplicates after collapsing:", sum(duplicated(rownames(expr_tcga_collapsed))), "\n")
+
+# Replace original expr_tcga with collapsed unique-gene matrix
+expr_tcga <- expr_tcga_collapsed
+# Recompute common genes after collapsing expr_tcga
+common_genes <- intersect(rownames(expr_tcga_collapsed), rownames(expr_gtex_filtered))
+
+# Subset both matrices to shared genes
+expr_tcga_sub <- expr_tcga_collapsed[common_genes, , drop=FALSE]
+expr_gtex_sub <- expr_gtex_filtered[common_genes, , drop=FALSE]
+
+#===============================================================================
+
+
+
+
+# Subset both to common genes
+expr_tcga_sub <- expr_tcga[common_genes, ]
+expr_gtex_sub <- expr_gtex_filtered[common_genes, ]
+
+# ------------------------------
+# STEP 3: Combine the counts
+expr_combined <- cbind(expr_tcga_sub, expr_gtex_sub)
+
+# Create combined labels: TCGA tumor/normal and GTEx normals
+tcga_labels <- factor(ifelse(labels=="Tumor", "Tumor", "Normal"), levels=c("Normal","Tumor"))
+gtex_labels <- factor(rep("Normal", ncol(expr_gtex_sub)), levels=c("Normal","Tumor"))
+combined_labels <- factor(c(as.character(tcga_labels), as.character(gtex_labels)),
+                          levels=c("Normal","Tumor"))
+
+coldata_combined <- data.frame(condition=combined_labels)
+rownames(coldata_combined) <- colnames(expr_combined)
+
+# ------------------------------
+# STEP 4: Run DESeq2 on the combined dataset
+dds <- DESeqDataSetFromMatrix(countData=expr_combined,
+                              colData=coldata_combined,
+                              design=~condition)
+
 dds <- DESeq(dds)
-res <- results(dds, contrast = c("condition", "Tumor", "Normal"))
-res <- lfcShrink(dds, coef = "condition_Tumor_vs_Normal", res = res, type = "ashr")
+res <- results(dds, contrast=c("condition","Tumor","Normal"))
+res <- lfcShrink(dds, coef="condition_Tumor_vs_Normal", res=res, type="ashr")
+
+# Save for downstream
 deg_tcga <- as.data.frame(res[order(res$padj), ])
 
+table(combined_labels)
 #------------------------[ 5. Extract and Filter DEGs ]------------------------
 deg_tcga_sig_1.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 1, ]
 deg_tcga_sig_0.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.5, ]
@@ -165,7 +265,7 @@ cat("Number of significant DEGs 0.05:", nrow(deg_geo_sig_0.05), "\n")
 
 
 # For TCGA (you used expr_tcga and labels)
-table(labels)          # tumor vs normal count
+table(combined_labels)          # tumor vs normal count
 
 # For GEO (assuming labels_geo and expr_geo exist)
 table(labels_geo)
