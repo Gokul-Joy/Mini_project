@@ -4,7 +4,7 @@
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
-BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
+#BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
 
 # Load required libraries
 # Load libraries
@@ -15,31 +15,7 @@ library(biomaRt)
 library(org.Hs.eg.db)
 
 
-# Download GTEx pancreas study (SRP012682)
-rse <- download_study("SRP012682", type = "gene")
 
-# Extract counts and metadata
-expr_gtex <- assay(rse)
-colData_gtex <- colData(rse)
-
-# Query GTEx data for pancreas samples
-gtex_data <- TCGAquery_recount2(
-  project = "gtex",
-  tissue = "pancreas"
-)
-
-# Extract counts and metadata
-expr_gtex <- gtex_data$counts
-colData_gtex <- gtex_data$colData
-
-# Filter to include only normal samples
-# GTEx is all normal, but in case you want to double-check sample types:
-colData_gtex$sample_type <- "Normal"  # optional, all GTEx samples are normal
-
-
-#------------------------[ 3. Extract expression data and metadata ]------------------------
-expr_gtex <- gtex_data$counts
-colData_gtex <- gtex_data$colData
 #------------------------[ 2. Load Data ]------------------------
 # Load TCGA PAAD RNA-seq data from local RDS (avoid re-downloading)
 data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
@@ -193,17 +169,20 @@ table(labels)          # tumor vs normal count
 
 # For GEO (assuming labels_geo and expr_geo exist)
 table(labels_geo)
+head(rownames(deg_geo_sig_1.5))
+head(probe2gene$PROBEID)
+head(rownames(deg_geo))
 
 
 
-#------------------------[ 7. Map DEGs to Gene Symbols ]------------------------
-deg_geo_sig_1.5$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_1.5), probe2gene$PROBEID)]
-deg_geo_sig_1.5 <- deg_geo_sig_1.5[!is.na(deg_geo_sig_1.5$SYMBOL), ]
-gene_geo_1.5 <- deg_geo_sig_1.5$SYMBOL
+# No re-mapping needed! Row names are already gene symbols.
+gene_geo_1.5 <- rownames(deg_geo_sig_1.5)
+gene_geo_0.5 <- rownames(deg_geo_sig_0.5)
+gene_geo_0.05 <- rownames(deg_geo_sig_0.05)
+cat("Number of significant DEGs 1.5:", length(gene_geo_1.5), "\n")
+cat("Number of significant DEGs 0.5:", length(gene_geo_0.5), "\n")
+cat("Number of significant DEGs 0.05:", length(gene_geo_0.05), "\n")
 
-deg_geo_sig_0.05$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_0.05), probe2gene$PROBEID)]
-deg_geo_sig_0.05 <- deg_geo_sig_0.05[!is.na(deg_geo_sig_0.05$SYMBOL), ]
-gene_geo_0.05 <- deg_geo_sig_0.05$SYMBOL
 
 #------------------------[ 8. Plot Density of Collapsed Expression ]------------------------
 library(ggplot2)
@@ -246,6 +225,8 @@ ggplot(deg_geo, aes(x = logFC, y = -log10(adj.P.Val), color = threshold)) +
 common_genes_1.5 <- intersect(gene_geo_1.5, genes_tcga_1.5)
 length(gene_geo_1.5); length(genes_tcga_1.5);
 common_genes_0.05 <- intersect(gene_geo_0.05, genes_tcga_0.05)
+length(gene_geo_0.05); length(genes_tcga_0.05);
+
 length(common_genes_1.5)
 length(common_genes_0.05)
 #|
@@ -269,8 +250,8 @@ ekegg_0.05 <- enrichKEGG(gene = entrez_ids_0.05$ENTREZID, organism = 'hsa', pval
 #|
 #|
 # Plots----------
-barplot(ego_0.05, showCategory = 15, title = "GO Enrichment")
-dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
+#barplot(ego_0.05, showCategory = 15, title = "GO Enrichment")
+#dotplot(ekegg_0.05, showCategory = 15, title = "KEGG Pathway Enrichment")
 #===============================================================================
 
 
@@ -288,12 +269,42 @@ names(gene_stats_1.5) <- rownames(deg_tcga)
 
 head(rownames(deg_tcga), 10)
 
-
+# Load libraries
 library(clusterProfiler)
+library(org.Hs.eg.db)
+library(DOSE)  # optional, adds GSEA plotting functions
 
-gsea_kegg_1.5 <- gseKEGG(geneList = sort(gene_stats_1.5, decreasing = TRUE),
-                         organism = "hsa",
-                         pvalueCutoff = 0.2)
+# Suppose your vector looks like this:
+# gene_stats_1.5 <- setNames(deg_tcga$logFC, rownames(deg_tcga))
+
+# 1️⃣ Convert SYMBOL → ENTREZ IDs
+gene_symbols <- names(gene_stats_1.5)
+
+# Map to Entrez IDs
+symbol2entrez <- bitr(
+  gene_symbols,
+  fromType = "SYMBOL",
+  toType = "ENTREZID",
+  OrgDb = org.Hs.eg.db
+)
+
+# 2️⃣ Merge back to retain stats for mapped genes
+gene_stats_entrez <- gene_stats_1.5[symbol2entrez$SYMBOL]
+names(gene_stats_entrez) <- symbol2entrez$ENTREZID
+
+# Remove NAs
+gene_stats_entrez <- gene_stats_entrez[!is.na(names(gene_stats_entrez))]
+
+# 3️⃣ Run GSEA KEGG
+gsea_kegg_1.5 <- gseKEGG(
+  geneList = sort(gene_stats_entrez, decreasing = TRUE),
+  organism = "hsa",
+  pvalueCutoff = 0.2
+)
+
+# 4️⃣ View results
+head(gsea_kegg_1.5@result)
+
 
 
 
@@ -307,67 +318,48 @@ dotplot(gsea_kegg_1.5, showCategory = 15, title = "KEGG GSEA logfc1.5 (TCGA-PAAD
 
 
 
+
 #===============================================================================
-# Clinical matching - Firebrowse custom parsing block (kept but switched to expr_tcga)
+# Clinical matching - TCGA/TCGAbiolinks
 #===============================================================================
 
-#  column names
-cat("Expression matrix sample IDs (TCGA):\n")
-print(head(colnames(expr_tcga)))   # CHANGED: print TCGA expr IDs (was expr_matrix)
-
-#  clinical file again (Firebrowse)
-clin_raw <- read.delim("D:/MSC/MiniProject/Dataset/firebrowse/clini/PAAD.clin.merged.picked.txt", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-# =============================
 
 
-# Extract base sample ids TCGA2JAAB1
-expr_ids <- gsub("\\.", "", substr(colnames(expr_tcga), 1, 12))  # CHANGED: use expr_tcga
-cat("Cleaned expr IDs:\n")
-print(head(expr_ids))
+# Download TCGA clinical data for PAAD
+clin_df <- GDCquery_clinic(project = "TCGA-PAAD", type = "clinical")
 
-# =============================
-# =============================
-
-
-clin_data <- clin_raw[-1, ]
-var_names <- clin_data[[1]]
-
-sample_ids_clin <- toupper(gsub("-", "", gsub("TCGA-", "", colnames(clin_data)[-1])))  # already like "TCGA2JAABR"
-clin_matrix <- as.matrix(clin_data[, -1])
-rownames(clin_matrix) <- var_names
-colnames(clin_matrix) <- sample_ids_clin
-
-clin_df <- as.data.frame(t(clin_matrix), stringsAsFactors = FALSE)
-clin_df$SampleID <- rownames(clin_df)
+# Standardize sample barcodes (first 12 chars is participant)
+clin_df$SampleID <- substr(clin_df$bcr_patient_barcode, 1, 12)
 
 cat("Cleaned clinical SampleIDs:\n")
 print(head(clin_df$SampleID))
 
-# =============================
-# 3. Match samples
-# =============================
+# Extract base sample ids from expression matrix
+expr_ids <- substr(colnames(expr_tcga), 1, 12)
+cat("Cleaned expr IDs:\n")
+print(head(expr_ids))
+
+# Match
 matched_ids <- intersect(expr_ids, clin_df$SampleID)
 cat("✅ Matched samples: ", length(matched_ids), "\n")
 
 # Subset and reorder
-expr_tcga <- expr_tcga[, expr_ids %in% matched_ids]   # CHANGED: operate on expr_tcga
+expr_tcga <- expr_tcga[, expr_ids %in% matched_ids]
 clin_df <- clin_df[clin_df$SampleID %in% matched_ids, ]
-clin_df <- clin_df[match(gsub("\\.", "", substr(colnames(expr_tcga), 1, 12)), clin_df$SampleID), ]  # CHANGED
+clin_df <- clin_df[match(substr(colnames(expr_tcga), 1, 12), clin_df$SampleID), ]
 
-# =============================
-# 4. Coerce and create survival objects
-# =============================
-clin_df$vital_status <- as.numeric(clin_df$vital_status)
+# Coercion (update with correct TCGAbiolinks field names)
+clin_df$vital_status <- as.numeric(clin_df$vital_status == "Dead")
 clin_df$days_to_death <- as.numeric(clin_df$days_to_death)
-clin_df$days_to_last_followup <- as.numeric(clin_df$days_to_last_followup)
+clin_df$days_to_last_follow_up <- as.numeric(clin_df$days_to_last_follow_up)
 
-surv_time <- ifelse(is.na(clin_df$days_to_death), clin_df$days_to_last_followup, clin_df$days_to_death)
+# Survival objects
+surv_time <- ifelse(is.na(clin_df$days_to_death), clin_df$days_to_last_follow_up, clin_df$days_to_death)
 surv_status <- clin_df$vital_status
 
-# Final check
 summary(surv_time)
 table(surv_status)
-dim(expr_tcga)   # CHANGED: print dims of expr_tcga
+dim(expr_tcga)
 
 
 
@@ -377,49 +369,37 @@ dim(expr_tcga)   # CHANGED: print dims of expr_tcga
 
 #===============================================================================
 #LASSO + Cox Regression Modeling 
-#===============================================================================
-
-length(common_genes_1.5)
-length(common_genes_0.05)
-
-head(rownames(expr_tcga), 10)   # CHANGED
-
-head(common_genes_1.5)
-head(common_genes_0.05)
-
 library(org.Hs.eg.db)
 
-# Entrez 
+# Convert Entrez IDs in expr_tcga rownames to gene symbols
 symbols <- mapIds(org.Hs.eg.db,
-                  keys = rownames(expr_tcga),   # CHANGED: use expr_tcga rownames
+                  keys = rownames(expr_tcga),   # Entrez IDs
                   column = "SYMBOL",
                   keytype = "ENTREZID",
                   multiVals = "first")
 
-# Remove rows with NA JUST FOR SAFE
+# Remove rows with NA symbols
 valid_idx <- !is.na(symbols)
-expr_tcga <- expr_tcga[valid_idx, ]   # CHANGED
+expr_tcga <- expr_tcga[valid_idx, ]
 symbols <- symbols[valid_idx]
 
 # Assign gene symbols as rownames
-rownames(expr_tcga) <- symbols    # CHANGED
+rownames(expr_tcga) <- symbols
 
-# Remove duplicated gene symbols (if any)
+# Remove duplicated gene symbols if any
 expr_tcga <- expr_tcga[!duplicated(rownames(expr_tcga)), ]
 
-# Confirm new gene symbols
 cat("New expression matrix rownames (symbols):\n")
 print(head(rownames(expr_tcga)))
 
-#///////////////////////////////////////////////////////////////////////////////
-# Filter expression matrix to common genes======================================
-expr_common_1.5 <- expr_tcga[rownames(expr_tcga) %in% common_genes_1.5, ]   # CHANGED
-expr_common_0.05 <- expr_tcga[rownames(expr_tcga) %in% common_genes_0.05, ] # CHANGED
+# Filter expression matrix to common genes (gene symbols)
+expr_common_1.5 <- expr_tcga[rownames(expr_tcga) %in% common_genes_1.5, ]
+expr_common_0.05 <- expr_tcga[rownames(expr_tcga) %in% common_genes_0.05, ]
 
-# Double-check dimensions
 cat("Expression matrix after gene filtering:\n")
-dim(expr_common_1.5)
-dim(expr_common_0.05)
+print(dim(expr_common_1.5))
+print(dim(expr_common_0.05))
+
 #===============================================================================
 #|
 #|
@@ -495,6 +475,9 @@ stable_genes <- gene_stability[gene_stability >= 0.7]
 print(stable_genes)
 
 
+library(tibble)
+# or
+library(dplyr)
 
 
 
@@ -602,3 +585,6 @@ legend("bottomright",
        legend = paste(names(auc_values), "AUC=", round(auc_values, 2)),
        col = c("blue", "green", "red"),
        lwd = 2)
+#===============================================================================
+#===============================================================================
+#===============================================================================
