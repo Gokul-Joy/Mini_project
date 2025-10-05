@@ -1,41 +1,89 @@
 #==============TCGA version=====================================================
-#------------------------[ 1. Download TCGA-PAAD RNA-seq Data with TCGAbiolinks ]------------------------
+#------------------------[ 1. Load Libraries ]------------------------
+# Install Bioconductor packages if not already installed
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
+
+# Load required libraries
+# Load libraries
 library(TCGAbiolinks)
-library(SummarizedExperiment)
+library(recount)
 library(DESeq2)
-# Query for gene expression (STAR counts) for both tumor and normal
-query <- GDCquery(
- project = "TCGA-PAAD",
-  data.category = "Transcriptome Profiling",
-  data.type = "Gene Expression Quantification",
-  workflow.type = "STAR - Counts",
-  sample.type = c("Primary Tumor", "Solid Tissue Normal")
+library(biomaRt)
+library(org.Hs.eg.db)
+
+
+# Download GTEx pancreas study (SRP012682)
+rse <- download_study("SRP012682", type = "gene")
+
+# Extract counts and metadata
+expr_gtex <- assay(rse)
+colData_gtex <- colData(rse)
+
+# Query GTEx data for pancreas samples
+gtex_data <- TCGAquery_recount2(
+  project = "gtex",
+  tissue = "pancreas"
 )
 
-#GDCdownload(query, method = "client", files.per.chunk = 10)
-data <- GDCprepare(query)
-# After GDCprepare()
-saveRDS(data, file = "D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
-# Load TCGA data from local RDS
-data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
-class(data)
-#------------------------[ 2. Prepare Expression Matrix and Labels ]------------------------
-expr_tcga <- assay(data)  # CHANGED: renamed from expr_matrix -> expr_tcga to avoid overwrite with GEO
-pheno_tcga <- colData(data)  # CHANGED: renamed to pheno_tcga
+# Extract counts and metadata
+expr_gtex <- gtex_data$counts
+colData_gtex <- gtex_data$colData
 
-# Extract sample types from barcode
+# Filter to include only normal samples
+# GTEx is all normal, but in case you want to double-check sample types:
+colData_gtex$sample_type <- "Normal"  # optional, all GTEx samples are normal
+
+
+#------------------------[ 3. Extract expression data and metadata ]------------------------
+expr_gtex <- gtex_data$counts
+colData_gtex <- gtex_data$colData
+#------------------------[ 2. Load Data ]------------------------
+# Load TCGA PAAD RNA-seq data from local RDS (avoid re-downloading)
+data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
+expr_tcga <- assay(data)        # genes x samples
+pheno_tcga <- colData(data)
+
+#------------------------[ 2a. Filter Protein-Coding Genes ]------------------------
+ensembl <- useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+ensembl_ids <- gsub("\\..*","",rownames(expr_tcga))  # remove version suffix
+
+# Get gene type info
+gene_info <- getBM(attributes=c("ensembl_gene_id","gene_biotype","external_gene_name"),
+                   filters="ensembl_gene_id",
+                   values=ensembl_ids,
+                   mart=ensembl)
+
+# Keep only protein-coding genes
+protein_coding_ids <- gene_info$ensembl_gene_id[gene_info$gene_biotype=="protein_coding"]
+keep_idx <- ensembl_ids %in% protein_coding_ids
+expr_tcga <- expr_tcga[keep_idx, ]
+
+# Map Ensembl IDs → gene symbols
+gene_symbols <- gene_info$external_gene_name[match(ensembl_ids[keep_idx],
+                                                   gene_info$ensembl_gene_id)]
+
+# Remove rows with NA gene symbols
+valid_idx <- !is.na(gene_symbols)
+expr_tcga <- expr_tcga[valid_idx, ]
+rownames(expr_tcga) <- gene_symbols[valid_idx]
+
+cat("Dimensions after filtering protein-coding genes:", dim(expr_tcga), "\n")
+
+#------------------------[ 2b. Extract sample types and filter samples ]------------------------
 sample_types <- substr(pheno_tcga$barcode, 14, 15)
 labels <- ifelse(sample_types == "01", "Tumor", "Normal")
+valid_samples <- sample_types %in% c("01", "11")
 
-# Filter for tumor and normal samples
-valid_types <- sample_types %in% c("01", "11")
-expr_tcga <- expr_tcga[, valid_types]   # CHANGED: operate on expr_tcga
-labels <- labels[valid_types]
-pheno_tcga <- pheno_tcga[valid_types, ]
+expr_tcga <- expr_tcga[, valid_samples]
+labels <- labels[valid_samples]
+pheno_tcga <- pheno_tcga[valid_samples, ]
 
 #------------------------[ 3. Create DESeq2 Dataset ]------------------------
 dds <- DESeqDataSetFromMatrix(
-  countData = expr_tcga,   # CHANGED: use expr_tcga
+  countData = expr_tcga,
   colData = data.frame(condition = factor(labels, levels = c("Normal", "Tumor"))),
   design = ~ condition
 )
@@ -43,60 +91,37 @@ dds <- DESeqDataSetFromMatrix(
 #------------------------[ 4. Run DESeq2 Analysis ]------------------------
 dds <- DESeq(dds)
 res <- results(dds, contrast = c("condition", "Tumor", "Normal"))
-res <- lfcShrink(dds, coef = "condition_Tumor_vs_Normal", res = res, type = "ashr") # optional, for more accurate logFC
+res <- lfcShrink(dds, coef = "condition_Tumor_vs_Normal", res = res, type = "ashr")
+deg_tcga <- as.data.frame(res[order(res$padj), ])
 
 #------------------------[ 5. Extract and Filter DEGs ]------------------------
-# Order by adjusted p-value
-resOrdered <- res[order(res$padj), ]
+deg_tcga_sig_1.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 1, ]
+deg_tcga_sig_0.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.5, ]
+deg_tcga_sig_0.05 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.05, ]
 
-# CHANGED: define deg_tcga and tidied DEG objects so later references work
-deg_tcga <- as.data.frame(resOrdered)   # CHANGED: create deg_tcga frame for later code that expects this name
-
-deg_tcga_sig_1.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 1, ]   # CHANGED
-deg_tcga_sig_0.5 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.5, ] # CHANGED
-deg_tcga_sig_0.05 <- deg_tcga[deg_tcga$padj < 0.05 & abs(deg_tcga$log2FoldChange) > 0.05, ] # CHANGED
-
-# Keep original convenience names (if you still want them)
-deg_deseq2_1 <- deg_tcga_sig_1.5        # CHANGED: maintain compatibility
+# Convenience copies
+deg_deseq2_1 <- deg_tcga_sig_1.5
 deg_deseq2_0.5 <- deg_tcga_sig_0.5
 deg_deseq2_0.05 <- deg_tcga_sig_0.05
 
-cat("Number of significant DEGs (logFC>1):", nrow(deg_deseq2_1), "\n")
-cat("Number of significant DEGs (logFC>0.5):", nrow(deg_deseq2_0.5), "\n")
-cat("Number of significant DEGs (logFC>0.05):", nrow(deg_deseq2_0.05), "\n")
+cat("Significant DEGs (logFC>1):", nrow(deg_deseq2_1), "\n")
+cat("Significant DEGs (logFC>0.5):", nrow(deg_deseq2_0.5), "\n")
+cat("Significant DEGs (logFC>0.05):", nrow(deg_deseq2_0.05), "\n")
 
-#==============================================================================================#|
+#------------------------[ 6. Map Gene Symbols (safe) ]------------------------
+symbols_1.5 <- rownames(deg_tcga_sig_1.5)  # already gene symbols
+symbols_0.05 <- rownames(deg_tcga_sig_0.05) # already gene symbols
 
-
-
-library(org.Hs.eg.db)
-symbols_1.5 <- mapIds(org.Hs.eg.db,
-                      keys = rownames(deg_tcga_sig_1.5),
-                      column = "SYMBOL",
-                      keytype = "ENTREZID",   # left unchanged as requested
-                      multiVals = "first")
-
-
-symbols_0.05 <- mapIds(org.Hs.eg.db,
-                       keys = rownames(deg_tcga_sig_0.05),
-                       column = "SYMBOL",
-                       keytype = "ENTREZID",   # left unchanged as requested
-                       multiVals = "first")
-
-
-# 6. Clean and save mapped symbols
-symbols_1.5 <- na.omit(symbols_1.5)
-symbols_0.05 <- na.omit(symbols_0.05)
-length(symbols_0.05)
 genes_tcga_1.5 <- unname(symbols_1.5)
-genes_tcga_0.05<- unname(symbols_0.05)
+genes_tcga_0.05 <- unname(symbols_0.05)
+
 #===============================================================================
 #===============================================================================
 
 
 
 
-install.packages("xml2")
+#install.packages("xml2")
 
 
 
@@ -151,7 +176,7 @@ design_geo <- model.matrix(~group_geo)
 fit_geo <- lmFit(expr_geo_maxvar, design_geo)
 fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
-
+dim(deg_geo)
 #------------------------[ 6. Filter Significant DEGs ]------------------------
 deg_geo_sig_1.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1, ]
 deg_geo_sig_0.5 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.5, ]
@@ -160,6 +185,16 @@ deg_geo_sig_0.05 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05
 cat("Number of significant DEGs 1.5:", nrow(deg_geo_sig_1.5), "\n")
 cat("Number of significant DEGs 0.5:", nrow(deg_geo_sig_0.5), "\n")
 cat("Number of significant DEGs 0.05:", nrow(deg_geo_sig_0.05), "\n")
+
+
+
+# For TCGA (you used expr_tcga and labels)
+table(labels)          # tumor vs normal count
+
+# For GEO (assuming labels_geo and expr_geo exist)
+table(labels_geo)
+
+
 
 #------------------------[ 7. Map DEGs to Gene Symbols ]------------------------
 deg_geo_sig_1.5$SYMBOL <- probe2gene$SYMBOL[match(rownames(deg_geo_sig_1.5), probe2gene$PROBEID)]
