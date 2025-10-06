@@ -471,23 +471,24 @@ dim(expr_tcga)
 #LASSO + Cox Regression Modeling 
 library(org.Hs.eg.db)
 
+head(rownames(expr_tcga))
 # Convert Entrez IDs in expr_tcga rownames to gene symbols
-symbols <- mapIds(org.Hs.eg.db,
-                  keys = rownames(expr_tcga),   # Entrez IDs
-                  column = "SYMBOL",
-                  keytype = "ENTREZID",
-                  multiVals = "first")
+#symbols <- mapIds(org.Hs.eg.db,
+              #    keys = rownames(expr_tcga),   # Entrez IDs
+               #   column = "SYMBOL",
+                #  keytype = "ENTREZID",
+                #  multiVals = "first")
 
 # Remove rows with NA symbols
-valid_idx <- !is.na(symbols)
-expr_tcga <- expr_tcga[valid_idx, ]
-symbols <- symbols[valid_idx]
+#valid_idx <- !is.na(symbols)
+#expr_tcga <- expr_tcga[valid_idx, ]
+#symbols <- symbols[valid_idx]
 
 # Assign gene symbols as rownames
-rownames(expr_tcga) <- symbols
+#rownames(expr_tcga) <- symbols
 
 # Remove duplicated gene symbols if any
-expr_tcga <- expr_tcga[!duplicated(rownames(expr_tcga)), ]
+#expr_tcga <- expr_tcga[!duplicated(rownames(expr_tcga)), ]
 
 cat("New expression matrix rownames (symbols):\n")
 print(head(rownames(expr_tcga)))
@@ -585,7 +586,7 @@ library(dplyr)
 
 
 # Plot stability
-# CHANGED: keep gene_stability as numeric vector with names so this works downstream
+# #CHANGED: keep gene_stability as numeric vector with names so this works downstream
 gene_df <- as.data.frame(gene_stability) %>%
   rownames_to_column("Gene") %>%
   rename(Stability = gene_stability)
