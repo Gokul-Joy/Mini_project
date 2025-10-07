@@ -2,7 +2,11 @@
 #------------------------[ 1. Load Libraries ]------------------------
 # Install Bioconductor packages if not already installed
 #if (!requireNamespace("BiocManager", quietly = TRUE))
+<<<<<<< HEAD
  # install.packages("BiocManager")
+=======
+  install.packages("BiocManager")
+>>>>>>> a7b5f766fde44ca6cf206a001507ceee8e2e5004
 
 #BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
 
@@ -58,7 +62,11 @@ library(recount3)
 #)
 
 # Extract raw counts matrix
+<<<<<<< HEAD
 #expr_counts <- assay(rse_pancreas, "raw_counts")
+=======
+expr_counts <- assay(rse_pancreas, "raw_counts")
+>>>>>>> a7b5f766fde44ca6cf206a001507ceee8e2e5004
 
 # Optionally save for later use
 #saveRDS(rse_pancreas, "gtex_pancreas_rse.rds")
