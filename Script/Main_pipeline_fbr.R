@@ -660,6 +660,9 @@ names(gene_stability) <- names(gene_freq)
 stable_genes <- gene_stability[gene_stability >= 0.7]
 print(stable_genes)
 
+# Number of unique genes selected at least once after 100 LASSO runs
+num_genes_selected <- length(gene_stability)
+print(num_genes_selected)
 
 library(tibble)
 # or
@@ -907,35 +910,34 @@ ggplot(df[1:10, ], aes(x = GeneRatio, y = reorder(Description, GeneRatio))) +
     legend.text = element_text(color = "#2F4F4F", size = 14)
   )
 
-df <- df[order(df$p.adjust), ]  # Ensure the most significant (lowest p.adjust) at the top
 
 
-
-
-
-ggplot(df[1:10, ], aes(x = GeneRatio, y = reorder(Description, GeneRatio))) +
+df$GeneRatioNum <- sapply(strsplit(as.character(df$GeneRatio), "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+ggplot(df[1:10, ], aes(x = GeneRatioNum * 100, y = reorder(Description, GeneRatioNum))) +
   geom_point(aes(size = Count, color = p.adjust)) +
-  geom_text(aes(label = round(p.adjust, 2)), hjust = 0, nudge_x = 0.01, color = "#2F4F4F", size = 5) +
-  scale_color_gradientn(
-    colors = c("blue", "purple", "gold", "orange", "red"),
-    name = "adj. p-value"
-  ) +
-  scale_size(range = c(6, 16)) +
+  geom_text(aes(label = Count), 
+            color = "black", size = 4, vjust = 0.5, fontface = "bold") +
+  scale_color_distiller(palette = "Spectral", direction = -1, name = "adj. p-value") +  # Spectral is classic for KEGG
+  scale_size(range = c(5, 14)) +
   labs(
-    title = "KEGG Enrichment (common genes)",
-    subtitle = "Top pathways colored by adj. p-value; dot size = gene count",
-    x = "Gene Ratio (Hits/DEGs)",
-    y = "Pathway"
+    title = "KEGG Pathway Enrichment: Common Genes",
+    subtitle = "Circle size = gene count; color = enrichment significance",
+    x = "Gene Ratio (% of DEGs)",
+    y = "Enriched Pathway"
   ) +
   custom_theme +
   theme(
     plot.title = element_text(color = "#2F4F4F", size = 22, hjust = 0.5),
-    plot.subtitle = element_text(color = "#2F4F4F", size = 16, hjust = 0.5),
-    axis.text = element_text(color = "#2F4F4F", size = 16),
+    plot.subtitle = element_text(color = "#2F4F4F", size = 14, hjust = 0.5),
     axis.title = element_text(color = "#2F4F4F", size = 18),
+    axis.text = element_text(color = "#2F4F4F", size = 16),
     legend.title = element_text(color = "#2F4F4F", size = 16),
     legend.text = element_text(color = "#2F4F4F", size = 14)
   )
+
+scale_color_distiller(palette = "Spectral", direction = -1, name = "adj. p-value")
+
+
 # ---------- CLINICAL DATA (Pie/Donut & Histogram) ----------
 # Pie/Donut: Add percent and count inside
 clin_df_plot <- clin_df_plot %>%
@@ -1012,11 +1014,98 @@ ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
   ) +
   custom_theme
 
+# slide10_lasso_stability.R
+library(ggplot2)
+
+# gene_df created earlier: columns Gene, Stability
+# if gene_df exists as in your code, use it directly
+library(ggplot2)
+library(viridis) # for the color palette
+
+# Assuming gene_df has columns Gene and Stability
+library(ggplot2)
+library(dplyr)
+
+# Highlight threshold
+threshold <- 0.8
+
+# Create a new column to identify stable genes above the threshold
+gene_df <- gene_df %>%
+  mutate(is_stable = Stability >= threshold)
+
+ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability, fill = Stability)) +
+  geom_col(aes(color = is_stable), size = ifelse(gene_df$Stability >= threshold, 1.2, 0.7), width = 0.7) +  # outline thicker for stable genes
+  coord_flip() +
+  scale_fill_gradient2(low = "lightcoral", mid = "lightblue", high = "steelblue", midpoint = 0.5) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red"), guide = "none") +  # red outline for stable genes
+  geom_text(data = subset(gene_df, Stability >= threshold),
+            aes(label = sprintf("%.2f", Stability)), 
+            hjust = -0.2, fontface = "bold", size = 4, color = "red") +  # labels for stable genes
+  labs(
+    title = "Gene selection stability across 100 LASSO runs",
+    x = NULL,
+    y = "Proportion of runs"
+  ) +
+  scale_y_continuous(limits = c(0, 1.1), expand = c(0, 0)) +  # extra space for labels
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    axis.title.y = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90"),
+    legend.position = "none",
+    panel.border = element_blank(),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  )
 
 
 
+gene_df$is_stable <- gene_df$Stability >= 0.8
+geom_col(aes(color = is_stable), width = 0.7, size = ifelse(gene_df$Stability >= 0.8, 1.4, 0.7))
 
+scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black"), guide = "none")
 
+geom_text(
+  data = subset(gene_df, is_stable),
+  aes(label = sprintf("%.2f", Stability)),
+  hjust = -0.2, fontface = "bold", size = 4, color = "red"
+)
+library(ggplot2)
+
+gene_df$is_stable <- gene_df$Stability >= 0.8
+
+ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability, fill = Stability)) +
+  geom_col(aes(color = is_stable), width = 0.7, size = 1) +
+  coord_flip() +
+  scale_fill_gradient2(low = "lightcoral", mid = "lightblue", high = "steelblue", midpoint = 0.5) +
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black"), guide = "none") +
+  geom_text(
+    data = subset(gene_df, is_stable),
+    aes(label = sprintf("%.2f", Stability)),
+    hjust = -0.2, fontface = "bold", size = 4, color = "black"
+  ) +
+  labs(
+    title = "Gene selection stability across 100 LASSO runs",
+    x = NULL,
+    y = "Proportion of runs"
+  ) +
+  scale_y_continuous(limits = c(0, 1.1), expand = c(0, 0)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    axis.title.y = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90"),
+    legend.position = "none",
+    panel.border = element_blank(),
+    axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black")
+  )
 
 
 
