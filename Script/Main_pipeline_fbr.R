@@ -621,7 +621,7 @@ y <- Surv(time = surv_time, event = surv_status)
 cat("Final dimensions:\n")
 print(dim(x_0.05))
 #///////////////////////////////////////////////////////////////////////////////
-n_runs <- 5
+n_runs <- 100
 seed_base <- 123
 alpha_val <- 1
 nfolds_val <- 10
@@ -776,80 +776,274 @@ legend("bottomright",
 cat("✅ Stable genes selected (≥", stability_cutoff*100, "% runs):\n")
 print(stable_genes)
 #===============================================================================
+#==================================END==========================================
 #===============================================================================
-#===============================================================================
 
 
 
 
-# slide1_datasets_counts.R
+
+#///////////////////////////////Visuals/////////////////////////////////////////
+
+# Load required libraries
 library(ggplot2)
+library(dplyr)
 
-df_counts <- data.frame(
-  dataset = c("TCGA Tumor", "TCGA Normal", "GTEx Pancreas", "GEO GSE62452"),
-  count = c(sum(combined_labels == "Tumor"),
-            sum(combined_labels == "Normal") - ncol(expr_gtex_sub), # approximate TCGA normal count
-            ncol(expr_gtex_sub),
-            ncol(expr_geo_maxvar))
-)
+# ---------- GLOBAL THEME (for all plots) ----------
+custom_theme <- theme_minimal(base_size = 16, base_family = "Arial") +
+  theme(
+    panel.background = element_rect(fill = "#F2F4F2", color = NA),
+    plot.background = element_rect(fill = "#F2F4F2", color = NA),
+    axis.title = element_text(color = "#56665E", size = 16),
+    axis.text = element_text(color = "#56665E", size = 14),
+    plot.title = element_text(color = "#56665E", size = 20, face = "plain", hjust = 0.5),
+    legend.title = element_text(color = "#56665E"),
+    legend.text = element_text(color = "#56665E")
+  )
 
+sage_palette <- c("#C7D6C7", "#89A089", "#56665E")
+
+# ---------- DATASET COUNTS (Slide 1) ----------
 ggplot(df_counts, aes(x = dataset, y = count, fill = dataset)) +
-  geom_col(show.legend = FALSE) +
-  geom_text(aes(label = count), vjust = -0.25) +
-  labs(title = "Samples by dataset", x = NULL, y = "Number of samples") +
-  theme_minimal()
+  geom_col(show.legend = FALSE, width = 0.75, color = NA) +
+  geom_text(aes(label = count), vjust = -0.3, color = "#56665E", size = 5) +
+  scale_fill_manual(values = sage_palette) +
+  labs(title = "Samples by Dataset", x = NULL, y = "Number of Samples") +
+  custom_theme
 
-
-
-
-# slide2_tcga_density.R
-library(ggplot2)
-
-# use expr_tcga (collapsed, gene symbols). Log-transform for visualization.
+# ---------- TCGA DENSITY (Slide 2) ----------
 vals <- as.vector(log2(expr_tcga + 1))
 ggplot(data.frame(Expression = vals), aes(x = Expression)) +
-  geom_density(alpha = 0.5) +
-  labs(title = "Density of TCGA expression (log2(count+1))", x = "log2(count+1)", y = "Density") +
-  theme_minimal()
+  geom_density(fill = "#C7D6C7", color = "#56665E", alpha = 0.8) +
+  labs(
+    title = "Density of TCGA Expression (log2(count+1))",
+    x = "log2(count+1)", y = "Density"
+  ) +
+  custom_theme
+
+# ---------- GROUPED BOXPLOT (if needed) ----------
+# (Remove if not needed)
+# ggplot(data.frame(Label = labels_combined, Expression = as.vector(expr_combined)), aes(x = Label, y = Expression, fill = Label)) +
+#   geom_boxplot(outlier.size = 0.4, color = "#56665E") +
+#   scale_fill_manual(values = sage_palette[1:2]) +
+#   labs(title = "Expression by Sample Group", x = "Group", y = "Expression") +
+#   custom_theme
+
+# ---------- MA-LIKE PLOT (TCGA DEGs Only) ----------
+deg$padj[is.na(deg$padj)] <- 1
+deg$signif05 <- deg$padj < 0.05 & abs(deg$log2FoldChange) > 0.05
+p1 <- ggplot(deg, aes(x = baseMean + 1, y = log2FoldChange, color = signif05)) +
+  geom_point(alpha = 0.6, size = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "#56665E") +
+  scale_x_log10() +
+  scale_color_manual(values = c("TRUE" = sage_palette[2], "FALSE" = "#d2ddd2")) +
+  labs(
+    title = "MA-like plot (TCGA, DESeq2)",
+    subtitle = paste0("Significant (padj<0.05 & |log2FC|>0.05): ", sum(deg$signif05, na.rm=TRUE)),
+    x = "baseMean (log scale)", y = "log2FoldChange"
+  ) +
+  custom_theme +
+  guides(color = "none")
+print(p1)
+
+# ---------- GEO MA PLOT & DENSITY (if you use) ----------
+if (exists("deg_geo")) {
+  deg_geo$signif05 <- deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 0.05
+  n_sig <- sum(deg_geo$signif05, na.rm = TRUE)
+  p_geo_ma <- ggplot(deg_geo, aes(x = AveExpr, y = logFC, color = signif05)) +
+    geom_point(alpha = 0.6, size = 1) +
+    scale_color_manual(values = c("TRUE" = sage_palette[3], "FALSE" = "#d2ddd2")) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "#56665E") +
+    labs(
+      title = "MA-like plot — GEO (limma)",
+      subtitle = paste0("Significant (adj.P.Val<0.05 & |logFC|>0.05): ", n_sig),
+      x = "Average Expression (AveExpr)",
+      y = "log2 Fold Change (logFC)"
+    ) +
+    custom_theme +
+    guides(color = "none")
+  print(p_geo_ma)
+}
+
+# ---------- ENRICHMENT/PATHWAY (Barplot/KEGG Dotplot) ----------
+# Example using clusterProfiler/ggplot2 with custom gradient/legend/theme above.
+
+# GO Barplot Example
+barplot(ego_0.05, 
+        showCategory = 10, 
+        title = "GO Enrichment (Common Genes)") +
+  scale_fill_gradientn(colours = sage_palette) +
+  custom_theme
+
+# KEGG Dotplot Example
+library(ggplot2)
+df <- as.data.frame(ekegg_0.05)
+
+ggplot(df[1:10, ], aes(x = GeneRatio, y = reorder(Description, GeneRatio))) +
+  geom_point(aes(size = Count, color = p.adjust)) +
+  scale_color_gradientn(colors = c("#56665E", "#3B4B3B", "#2F332F")) +  # darker colors
+  scale_size(range = c(5, 12)) +  # increase size range for circles
+  labs(title = "KEGG Enrichment (common genes)", color = "adj. p-value", size = "Count") +
+  custom_theme +
+  theme(
+    plot.title = element_text(color = "#2F4F4F", size = 22, hjust = 0.5),
+    axis.text = element_text(color = "#2F4F4F", size = 16),
+    axis.title = element_text(color = "#2F4F4F", size = 18),
+    legend.title = element_text(color = "#2F4F4F", size = 16),
+    legend.text = element_text(color = "#2F4F4F", size = 14)
+  )
+library(viridis)
+ggplot(df[1:10, ], aes(x = GeneRatio, y = reorder(Description, GeneRatio))) +
+  geom_point(aes(size = Count, color = p.adjust)) +
+  scale_color_viridis(option = "C", begin = 0, end = 1, direction = -1, name = "adj. p-value") +
+  scale_size(range = c(5, 12)) +
+  labs(title = "KEGG Enrichment (common genes)", color = "adj. p-value", size = "Count") +
+  custom_theme +
+  theme(
+    plot.title = element_text(color = "#2F4F4F", size = 22, hjust = 0.5),
+    axis.text = element_text(color = "#2F4F4F", size = 16),
+    axis.title = element_text(color = "#2F4F4F", size = 18),
+    legend.title = element_text(color = "#2F4F4F", size = 16),
+    legend.text = element_text(color = "#2F4F4F", size = 14)
+  )
+
+df <- df[order(df$p.adjust), ]  # Ensure the most significant (lowest p.adjust) at the top
 
 
-# slide3_combined_boxplot.R
-
-# -----------------------------
-# Check total dimensions
-# -----------------------------
-cat("Combined expression matrix dimensions (Genes x Samples):\n")
-dim(expr_combined)
 
 
-# -----------------------------
-# Define combined sample labels
-# -----------------------------
-samples_combined <- colnames(expr_combined)
 
-# TCGA Tumor/Normal already defined in your 'labels' vector (same order as expr_tcga columns)
-# Identify which columns belong to TCGA and which to GTEx
-tcga_samples <- colnames(expr_tcga)
-gtex_samples <- colnames(expr_gtex_sub)
+ggplot(df[1:10, ], aes(x = GeneRatio, y = reorder(Description, GeneRatio))) +
+  geom_point(aes(size = Count, color = p.adjust)) +
+  geom_text(aes(label = round(p.adjust, 2)), hjust = 0, nudge_x = 0.01, color = "#2F4F4F", size = 5) +
+  scale_color_gradientn(
+    colors = c("blue", "purple", "gold", "orange", "red"),
+    name = "adj. p-value"
+  ) +
+  scale_size(range = c(6, 16)) +
+  labs(
+    title = "KEGG Enrichment (common genes)",
+    subtitle = "Top pathways colored by adj. p-value; dot size = gene count",
+    x = "Gene Ratio (Hits/DEGs)",
+    y = "Pathway"
+  ) +
+  custom_theme +
+  theme(
+    plot.title = element_text(color = "#2F4F4F", size = 22, hjust = 0.5),
+    plot.subtitle = element_text(color = "#2F4F4F", size = 16, hjust = 0.5),
+    axis.text = element_text(color = "#2F4F4F", size = 16),
+    axis.title = element_text(color = "#2F4F4F", size = 18),
+    legend.title = element_text(color = "#2F4F4F", size = 16),
+    legend.text = element_text(color = "#2F4F4F", size = 14)
+  )
+# ---------- CLINICAL DATA (Pie/Donut & Histogram) ----------
+# Pie/Donut: Add percent and count inside
+clin_df_plot <- clin_df_plot %>%
+  mutate(percent = count / sum(count) * 100,
+         label = paste0(status, "\n", count, " (", sprintf("%.1f", percent), "%)"))
 
-# Match labels for TCGA part and add GTEx as "Normal"
-labels_combined <- c(labels, rep("Normal", length(gtex_samples)))
+ggplot(clin_df_plot, aes(x = "", y = count, fill = status)) + 
+  geom_col(width = 1, color = NA) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = c("Alive" = sage_palette[1], "Dead" = sage_palette[2])) +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), color = "#56665E", size = 5.4) +
+  guides(fill = guide_legend(title = "Vital Status")) +
+  labs(title = "Distribution of Patient Vital Status") +
+  theme_void(base_size = 16, base_family = "Arial") +
+  theme(
+    plot.title = element_text(color = "#56665E", size = 20, face = "plain", hjust = 0.5),
+    legend.position = "right"
+  )
 
-# Double-check lengths match number of samples
-cat("\nLength check (should match number of columns in expr_combined):\n")
-length(labels_combined)
+# Histogram of follow-up years
+surv_years <- surv_time / 365.25
+ggplot(data.frame(surv_years = surv_years), aes(x = surv_years)) +
+  geom_histogram(binwidth = 1, fill = sage_palette[1], color = "#56665E", alpha = 0.85) +
+  labs(
+    title = "Distribution of Follow-up Time",
+    x = "Follow-up Time (years)",
+    y = "Number of Patients"
+  ) +
+  scale_x_continuous(breaks = seq(0, ceiling(max(surv_years)), by = 1)) +
+  custom_theme
 
-# -----------------------------
-# Summarize Tumor vs Normal counts
-# -----------------------------
-cat("\nTumor vs Normal sample counts (after combining TCGA + GTEx):\n")
-table(labels_combined)
+# ---------- LASSO STABILITY (if applicable) ----------
+if (exists("gene_df")) {
+  ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
+    geom_col(fill = sage_palette[2], width = 0.7) + 
+    coord_flip() +
+    labs(
+      title = "Gene Selection Stability (LASSO, 100 Runs)",
+      x = NULL, y = "Proportion of Runs"
+    ) +
+    custom_theme
+  # add annotation for threshold
+  stable_genes <- gene_df$Gene[gene_df$Stability >= 0.7]
+  cat("Stable genes (>=70% runs):\n")
+  print(stable_genes)
+}
 
-# -----------------------------
-# Optional: quick barplot visualization
-# -----------------------------
-barplot(table(labels_combined),
-        col = c("tomato", "skyblue"),
-        main = "Sample distribution after combining TCGA + GTEx",
-        ylab = "Number of samples")
+# ---------- REMOVE or COMMENT OUT ANY REDUNDANT OR OLD BARPLOTS/VISUALS ----------
+
+# End of cleaned and aesthetic code block
+
+
+
+# Define the consistent custom theme
+custom_theme <- theme_minimal(base_size = 16, base_family = "Arial") +
+  theme(
+    panel.background = element_rect(fill = "#F2F4F2", color = NA),
+    plot.background = element_rect(fill = "#F2F4F2", color = NA),
+    plot.title = element_text(color = "#56665E", size = 20, face = "plain", hjust = 0.5),
+    axis.title = element_text(color = "#56665E", size = 16),
+    axis.text = element_text(color = "#56665E", size = 14)
+  )
+
+# Sage color for bar fill
+sage_bar <- "#89A089"
+
+ggplot(gene_df, aes(x = reorder(Gene, Stability), y = Stability)) +
+  geom_col(fill = sage_bar, width = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Gene Selection Stability Across 100 LASSO Runs",
+    x = NULL,
+    y = "Proportion of Runs"
+  ) +
+  custom_theme
+
+
+
+
+
+
+
+
+
+
+
+#===============================================================================
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#---------------------------------Summary---------------------------------------
+cat("TCGA Tumor samples:", sum(labels == "Tumor"), "\n")
+cat("TCGA Normal samples:", sum(labels == "Normal"), "\n")
+cat("TCGA Combined samples:", dim(expr_combined), "\n")
+
+# GEO sample counts
+cat("GEO Tumor samples:", sum(labels_geo == 1), "\n")
+cat("GEO Normal samples:", sum(labels_geo == 0), "\n")
+
+cat("Significant TCGA DEGs (padj < 0.05 & |log2FC| > 0.05):", length(genes_tcga_0.05), "\n")
+cat("Significant GEO DEGs (adj.P.Val < 0.05 & |logFC| > 0.05):", length(gene_geo_0.05), "\n")
+
+
+cat("Intersected DEGs (TCGA ∩ GEO, |logFC| > 0.05):", length(common_genes_0.05), "\n")
+
+cat("Identified candidate genes (stability ≥ 70%):", length(stable_genes), "\n")
+cat("Top 5 most stable candidate genes:\n")
+print(head(stable_genes))
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#===============================================================================
+
+
 
