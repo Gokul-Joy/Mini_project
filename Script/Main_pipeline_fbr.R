@@ -2,11 +2,10 @@
 #------------------------[ 1. Load Libraries ]------------------------
 # Install Bioconductor packages if not already installed
 #if (!requireNamespace("BiocManager", quietly = TRUE))
-<<<<<<< HEAD
- # install.packages("BiocManager")
-=======
-  install.packages("BiocManager")
->>>>>>> a7b5f766fde44ca6cf206a001507ceee8e2e5004
+# install.packages("BiocManager")
+
+
+
 
 #BiocManager::install(c("recount", "DESeq2", "biomaRt", "org.Hs.eg.db"))
 
@@ -20,6 +19,8 @@ library(org.Hs.eg.db)
 data <- readRDS("D:/MSC/MiniProject/TCGA_PAAD_expr.rds")
 expr_tcga <- assay(data)        # genes x samples
 pheno_tcga <- colData(data)
+
+View(expr_tcga)
 
 # Filter TCGA for protein-coding genes
 ensembl <- useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl")
@@ -47,6 +48,27 @@ expr_tcga <- expr_tcga[, valid_samples]
 labels <- labels[valid_samples]
 pheno_tcga <- pheno_tcga[valid_samples, ]
 
+View(expr_tcga)
+dim(expr_tcga)
+
+# tcga_qc_plots.R
+library(DESeq2); library(ggplot2)
+# vst normalization for visualization
+dds_tmp <- DESeqDataSetFromMatrix(countData = expr_tcga, 
+                                  colData = data.frame(condition=factor(labels)), design=~condition)
+vst_tcga <- vst(dds_tmp, blind=TRUE)
+mat_vst <- assay(vst_tcga)
+
+# density plot
+df <- data.frame(Expression = as.vector(mat_vst))
+ggplot(df, aes(x = Expression)) + geom_density(alpha=0.5) +
+  labs(title = "VST density of TCGA (processed)") + theme_minimal()
+
+
+
+
+
+
 # ------------------------------
 # STEP 1: Process GTEx data (your code)
 
@@ -54,19 +76,16 @@ library(recount3)
 
 # Download GTEx pancreas data as RangedSummarizedExperiment
 #rse_pancreas <- create_rse_manual(
- # project = "PANCREAS",
-  #project_home = "data_sources/gtex",
-  #organism = "human",
-  #annotation = "gencode_v26",
-  #type = "gene"
+# project = "PANCREAS",
+#project_home = "data_sources/gtex",
+#organism = "human",
+#annotation = "gencode_v26",
+#type = "gene"
 #)
 
 # Extract raw counts matrix
-<<<<<<< HEAD
+
 #expr_counts <- assay(rse_pancreas, "raw_counts")
-=======
-expr_counts <- assay(rse_pancreas, "raw_counts")
->>>>>>> a7b5f766fde44ca6cf206a001507ceee8e2e5004
 
 # Optionally save for later use
 #saveRDS(rse_pancreas, "gtex_pancreas_rse.rds")
@@ -150,6 +169,59 @@ expr_gtex_sub <- expr_gtex_filtered[common_genes, , drop=FALSE]
 # Subset both to common genes
 expr_tcga_sub <- expr_tcga[common_genes, ]
 expr_gtex_sub <- expr_gtex_filtered[common_genes, ]
+#=============================================================================
+#=============================================================================
+# ================= PCA-based GTEx sample selection (178 samples) =================
+# ------------------------------
+# PCA-based reduction of GTEx Normal samples to target N = 178
+# Place this block immediately after:
+# expr_gtex_sub <- expr_gtex_filtered[common_genes, , drop=FALSE]
+# ------------------------------
+
+target_n <- 174
+
+if (ncol(expr_gtex_sub) > target_n) {
+  set.seed(42)
+  message("GTEx samples before reduction: ", ncol(expr_gtex_sub))
+  
+  libSizes <- colSums(expr_gtex_sub)
+  libSizes[libSizes == 0] <- 1
+  norm_counts <- t( t(expr_gtex_sub) / libSizes ) * median(libSizes)
+  log2_norm <- log2(norm_counts + 1)
+  
+  # Remove samples with zero variance
+  var_per_sample <- apply(log2_norm, 2, var)
+  log2_norm <- log2_norm[, var_per_sample > 0, drop = FALSE]
+  
+  # ✅ Remove genes with zero variance
+  var_per_gene <- apply(log2_norm, 1, var)
+  log2_norm <- log2_norm[var_per_gene > 0, , drop = FALSE]
+  
+  # PCA
+  pca <- prcomp(t(log2_norm), center = TRUE, scale. = TRUE)
+  
+  pcs12 <- pca$x[, 1:2, drop = FALSE]
+  centroid <- colMeans(pcs12)
+  dists_to_centroid <- sqrt(rowSums((pcs12 - matrix(centroid, nrow = nrow(pcs12), ncol = 2, byrow = TRUE))^2))
+  
+  sel_order <- order(dists_to_centroid)
+  selected_samples <- rownames(pcs12)[ sel_order[1:target_n] ]
+  
+  expr_gtex_sub <- expr_gtex_sub[, selected_samples, drop = FALSE]
+  message("GTEx samples after reduction: ", ncol(expr_gtex_sub))
+  
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par), add = TRUE)
+  plot(pca$x[,1], pca$x[,2], pch = 20, xlab = "PC1", ylab = "PC2",
+       main = paste0("GTEx PCA (", ncol(expr_gtex_sub), " samples selected)"))
+  points(pca$x[selected_samples, 1], pca$x[selected_samples, 2], pch = 20, cex = 1.2, col = "red")
+}
+
+
+
+#=============================================================================
+#=============================================================================
+
 
 # ------------------------------
 # STEP 3: Combine the counts
@@ -163,6 +235,11 @@ combined_labels <- factor(c(as.character(tcga_labels), as.character(gtex_labels)
 
 coldata_combined <- data.frame(condition=combined_labels)
 rownames(coldata_combined) <- colnames(expr_combined)
+
+
+table(combined_labels)
+
+
 
 # ------------------------------
 # STEP 4: Run DESeq2 on the combined dataset
@@ -482,10 +559,10 @@ library(org.Hs.eg.db)
 head(rownames(expr_tcga))
 # Convert Entrez IDs in expr_tcga rownames to gene symbols
 #symbols <- mapIds(org.Hs.eg.db,
-              #    keys = rownames(expr_tcga),   # Entrez IDs
-               #   column = "SYMBOL",
-                #  keytype = "ENTREZID",
-                #  multiVals = "first")
+#    keys = rownames(expr_tcga),   # Entrez IDs
+#   column = "SYMBOL",
+#  keytype = "ENTREZID",
+#  multiVals = "first")
 
 # Remove rows with NA symbols
 #valid_idx <- !is.na(symbols)
@@ -544,7 +621,7 @@ y <- Surv(time = surv_time, event = surv_status)
 cat("Final dimensions:\n")
 print(dim(x_0.05))
 #///////////////////////////////////////////////////////////////////////////////
-n_runs <- 100
+n_runs <- 5
 seed_base <- 123
 alpha_val <- 1
 nfolds_val <- 10
@@ -701,3 +778,78 @@ print(stable_genes)
 #===============================================================================
 #===============================================================================
 #===============================================================================
+
+
+
+
+# slide1_datasets_counts.R
+library(ggplot2)
+
+df_counts <- data.frame(
+  dataset = c("TCGA Tumor", "TCGA Normal", "GTEx Pancreas", "GEO GSE62452"),
+  count = c(sum(combined_labels == "Tumor"),
+            sum(combined_labels == "Normal") - ncol(expr_gtex_sub), # approximate TCGA normal count
+            ncol(expr_gtex_sub),
+            ncol(expr_geo_maxvar))
+)
+
+ggplot(df_counts, aes(x = dataset, y = count, fill = dataset)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = count), vjust = -0.25) +
+  labs(title = "Samples by dataset", x = NULL, y = "Number of samples") +
+  theme_minimal()
+
+
+
+
+# slide2_tcga_density.R
+library(ggplot2)
+
+# use expr_tcga (collapsed, gene symbols). Log-transform for visualization.
+vals <- as.vector(log2(expr_tcga + 1))
+ggplot(data.frame(Expression = vals), aes(x = Expression)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density of TCGA expression (log2(count+1))", x = "log2(count+1)", y = "Density") +
+  theme_minimal()
+
+
+# slide3_combined_boxplot.R
+
+# -----------------------------
+# Check total dimensions
+# -----------------------------
+cat("Combined expression matrix dimensions (Genes x Samples):\n")
+dim(expr_combined)
+
+
+# -----------------------------
+# Define combined sample labels
+# -----------------------------
+samples_combined <- colnames(expr_combined)
+
+# TCGA Tumor/Normal already defined in your 'labels' vector (same order as expr_tcga columns)
+# Identify which columns belong to TCGA and which to GTEx
+tcga_samples <- colnames(expr_tcga)
+gtex_samples <- colnames(expr_gtex_sub)
+
+# Match labels for TCGA part and add GTEx as "Normal"
+labels_combined <- c(labels, rep("Normal", length(gtex_samples)))
+
+# Double-check lengths match number of samples
+cat("\nLength check (should match number of columns in expr_combined):\n")
+length(labels_combined)
+
+# -----------------------------
+# Summarize Tumor vs Normal counts
+# -----------------------------
+cat("\nTumor vs Normal sample counts (after combining TCGA + GTEx):\n")
+table(labels_combined)
+
+# -----------------------------
+# Optional: quick barplot visualization
+# -----------------------------
+barplot(table(labels_combined),
+        col = c("tomato", "skyblue"),
+        main = "Sample distribution after combining TCGA + GTEx",
+        ylab = "Number of samples")
+
