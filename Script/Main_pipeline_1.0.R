@@ -291,8 +291,6 @@ library(enrichplot); library(DOSE)
 
 
 library(WGCNA)
-
-
 # Load GSE62452
 gse1 <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
 expr_geo1 <- exprs(gse1)
@@ -304,23 +302,25 @@ gse2 <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE183795_series_matrix.tx
 expr_geo2 <- exprs(gse2)
 pheno2 <- pData(gse2)
 
-# Function to detect tumor/normal labels robustly
-detect_label_column_and_assign <- function(pheno_df) {
-  candidates <- c("tissue:ch1", "source_name_ch1", "characteristics_ch1", "tissue", "title")
-  found <- intersect(candidates, colnames(pheno_df))
-  if(length(found) > 0) {
-    colvals <- as.character(pheno_df[[found[1]]])
-  } else {
-    idx <- grep("tissue|tumor|sample type|characteristics", tolower(colnames(pheno_df)))
-    if(length(idx)>0) colvals <- as.character(pheno_df[[idx[1]]]) else colvals <- apply(pheno_df, 1, paste, collapse=" ")
-  }
-  is_tumor <- grepl("tumor|cancer|PDAC", tolower(colvals))
-  is_normal <- grepl("normal|healthy|donor", tolower(colvals))
-  labels <- ifelse(is_tumor, 1, ifelse(is_normal, 0, NA))
-  return(labels)
-}
+library(WGCNA)
 
-labels_geo2 <- detect_label_column_and_assign(pheno2)
+# Load GSE62452
+gse1 <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE62452_series_matrix.txt.gz')
+expr_geo1 <- exprs(gse1)
+pheno1 <- pData(gse1)
+
+# Assign labels explicitly for GSE62452
+labels_geo1 <- ifelse(pheno1$`tissue:ch1` == "Pancreatic tumor", 1, 
+                      ifelse(grepl("adjacent|non-tumor", pheno1$`tissue:ch1`, ignore.case=TRUE), 0, NA))
+
+# Load GSE183795
+gse2 <- getGEO(filename = 'D:/MSC/MiniProject/Dataset/GSE183795_series_matrix.txt.gz')
+expr_geo2 <- exprs(gse2)
+pheno2 <- pData(gse2)
+
+# Assign labels explicitly for GSE183795
+labels_geo2 <- ifelse(pheno2$`tissue:ch1` == "Tumor", 1, 
+                      ifelse(grepl("adjacent non-tumor|non-tumor", pheno2$`tissue:ch1`, ignore.case=TRUE), 0, NA))
 
 # Probe to gene mapping (platform assumed same for both)
 gpl <- getGEO("GPL6244", AnnotGPL = TRUE)
@@ -346,9 +346,10 @@ expr_geo2_matrix <- as.matrix(expr_geo2_annot[, -(1:2)])
 rowGroup2 <- expr_geo2_annot$SYMBOL
 rowID2 <- expr_geo2_annot$PROBEID
 collapsed2 <- collapseRows(datET = expr_geo2_matrix, rowGroup = rowGroup2, rowID = rowID2, method = "maxRowVariance")
+
 expr_geo2_maxvar <- collapsed2$datETcollapsed
 
-# Log2 transform if needed (heuristic check)
+# Log2 transform if needed
 ensure_log2 <- function(mat) {
   q <- quantile(mat, probs = c(0.99))
   if(q[1] > 100) mat <- log2(mat + 1)
@@ -357,22 +358,84 @@ ensure_log2 <- function(mat) {
 expr_geo1_maxvar <- ensure_log2(expr_geo1_maxvar)
 expr_geo2_maxvar <- ensure_log2(expr_geo2_maxvar)
 
-# Keep only genes common to both
-common_genes <- intersect(rownames(expr_geo1_maxvar), rownames(expr_geo2_maxvar))
-e1 <- expr_geo1_maxvar[common_genes, , drop = FALSE]
-e2 <- expr_geo2_maxvar[common_genes, , drop = FALSE]
+# Filter out samples with NA labels (if any)
+keep1 <- !is.na(labels_geo1)
+expr_geo1_maxvar <- expr_geo1_maxvar[, keep1]
+labels_geo1 <- labels_geo1[keep1]
 
-# Combine expression and labels
-expr_geo_maxvar <- cbind(e1, e2)
-labels_geo <- c(labels_geo1, labels_geo2)
-geo_batch <- c(rep("GSE62452", ncol(e1)), rep("GSE183795", ncol(e2)))
+keep2 <- !is.na(labels_geo2)
+expr_geo2_maxvar <- expr_geo2_maxvar[, keep2]
+labels_geo2 <- labels_geo2[keep2]
 
-# Quantile normalization and batch correction
+# Separate tumor and normal samples in each dataset
+tumor_idx_1 <- which(labels_geo1 == 1)
+normal_idx_1 <- which(labels_geo1 == 0)
+tumor_idx_2 <- which(labels_geo2 == 1)
+normal_idx_2 <- which(labels_geo2 == 0)
+
+expr_geo1_tumor <- expr_geo1_maxvar[, tumor_idx_1, drop = FALSE]
+expr_geo1_normal <- expr_geo1_maxvar[, normal_idx_1, drop = FALSE]
+expr_geo2_tumor <- expr_geo2_maxvar[, tumor_idx_2, drop = FALSE]
+expr_geo2_normal <- expr_geo2_maxvar[, normal_idx_2, drop = FALSE]
+
+# Keep genes common to all subsets
+common_genes <- Reduce(intersect, list(rownames(expr_geo1_tumor), rownames(expr_geo1_normal), 
+                                       rownames(expr_geo2_tumor), rownames(expr_geo2_normal)))
+
+expr_geo1_tumor <- expr_geo1_tumor[common_genes, , drop = FALSE]
+expr_geo1_normal <- expr_geo1_normal[common_genes, , drop = FALSE]
+expr_geo2_tumor <- expr_geo2_tumor[common_genes, , drop = FALSE]
+expr_geo2_normal <- expr_geo2_normal[common_genes, , drop = FALSE]
+
+# Combine normal and tumor samples respectively
+expr_geo_combined_normal <- cbind(expr_geo1_normal, expr_geo2_normal)
+expr_geo_combined_tumor <- cbind(expr_geo1_tumor, expr_geo2_tumor)
+
+# Combine all samples: normals then tumors
+expr_geo_maxvar <- cbind(expr_geo_combined_normal, expr_geo_combined_tumor)
+
+# Combined labels vector (0 = Normal, 1 = Tumor)
+labels_geo <- c(rep(0, ncol(expr_geo_combined_normal)), rep(1, ncol(expr_geo_combined_tumor)))
+
+# Batch vector for ComBat (dataset only, not confounded by tumor/normal)
+geo_batch <- c(rep("GSE62452", ncol(expr_geo1_normal) + ncol(expr_geo1_tumor)),
+               rep("GSE183795", ncol(expr_geo2_normal) + ncol(expr_geo2_tumor)))
+
+library(sva)
+
+# Normalize and batch correct
 expr_geo_maxvar <- normalizeBetweenArrays(expr_geo_maxvar, method = "quantile")
-modcombat <- model.matrix(~as.factor(labels_geo))
+modcombat <- model.matrix(~ as.factor(labels_geo))
 expr_geo_maxvar <- ComBat(dat = expr_geo_maxvar, batch = geo_batch, mod = modcombat, par.prior = TRUE, prior.plots = FALSE)
 
-# deg_geo is produced exactly as before (limma step using expr_geo_maxvar and labels_geo)
+# Check label distribution
+print(table(labels_geo))
+
+cat("GSE62452 labels count:\n")
+print(table(labels_geo1))
+
+cat("GSE183795 labels count:\n")
+print(table(labels_geo2))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Differential expression analysis with limma
+library(limma)
 group_geo <- factor(labels_geo)
 design_geo <- model.matrix(~group_geo)
 fit_geo <- lmFit(expr_geo_maxvar, design_geo)
@@ -380,7 +443,7 @@ fit_geo <- eBayes(fit_geo)
 deg_geo <- topTable(fit_geo, coef = 2, number = Inf, adjust.method = "fdr")
 deg_geo_sig_1 <- deg_geo[deg_geo$adj.P.Val < 0.05 & abs(deg_geo$logFC) > 1, ]
 gene_geo_1 <- rownames(deg_geo_sig_1)
-
+length(gene_geo_1)
 
 
 #======================Block of common genes and GO nd KEGG=====================
